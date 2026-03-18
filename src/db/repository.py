@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS bot_state (
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    condition_id TEXT NOT NULL,
+    market_title TEXT NOT NULL,
+    predicted_prob REAL NOT NULL,
+    market_price REAL NOT NULL,
+    edge REAL NOT NULL,
+    outcome_actual TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER
+);
 """
 
 
@@ -224,6 +237,57 @@ class Repository:
             (key, value, int(time.time())),
         )
         self._conn.commit()
+
+    # -- predictions -------------------------------------------------------
+
+    def save_prediction(
+        self, condition_id: str, market_title: str,
+        predicted_prob: float, market_price: float, edge: float,
+    ) -> int:
+        cursor = self._conn.execute(
+            "INSERT INTO predictions "
+            "(condition_id, market_title, predicted_prob, market_price, edge, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (condition_id, market_title, predicted_prob, market_price, edge, int(time.time())),
+        )
+        self._conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def resolve_prediction(self, condition_id: str, outcome: str) -> None:
+        self._conn.execute(
+            "UPDATE predictions SET outcome_actual = ?, resolved = 1, resolved_at = ? "
+            "WHERE condition_id = ? AND resolved = 0",
+            (outcome, int(time.time()), condition_id),
+        )
+        self._conn.commit()
+
+    def get_resolved_predictions(self, limit: int = 100) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM predictions WHERE resolved = 1 ORDER BY resolved_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_prediction_stats(self) -> dict:
+        """Calculate Brier score and calibration stats."""
+        rows = self.get_resolved_predictions(500)
+        if not rows:
+            return {"count": 0, "brier_score": 0.0, "avg_edge": 0.0}
+
+        total_brier = 0.0
+        total_edge = 0.0
+        count = 0
+        for r in rows:
+            actual = 1.0 if r["outcome_actual"] in ("Yes", "1", "true") else 0.0
+            total_brier += (r["predicted_prob"] - actual) ** 2
+            total_edge += r["edge"]
+            count += 1
+
+        return {
+            "count": count,
+            "brier_score": round(total_brier / count, 4) if count > 0 else 0.0,
+            "avg_edge": round(total_edge / count, 4) if count > 0 else 0.0,
+        }
 
     # -- helpers -----------------------------------------------------------
 

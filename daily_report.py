@@ -148,6 +148,27 @@ def collect_bot_data(days: int = 1) -> dict[str, Any]:
         s["unique_markets"] = len(s["markets"])
         del s["markets"]
 
+    # Prediction calibration stats
+    prediction_stats = {"count": 0, "brier_score": 0.0, "avg_edge": 0.0}
+    try:
+        pred_rows = conn.execute(
+            "SELECT * FROM predictions WHERE resolved = 1 ORDER BY resolved_at DESC LIMIT 100"
+        ).fetchall()
+        if pred_rows:
+            total_brier = 0.0
+            total_edge = 0.0
+            for r in pred_rows:
+                actual = 1.0 if r["outcome_actual"] in ("Yes", "1", "true") else 0.0
+                total_brier += (r["predicted_prob"] - actual) ** 2
+                total_edge += r["edge"]
+            prediction_stats = {
+                "count": len(pred_rows),
+                "brier_score": round(total_brier / len(pred_rows), 4),
+                "avg_edge": round(total_edge / len(pred_rows), 4),
+            }
+    except Exception:
+        pass  # Table might not exist yet
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "period_days": days,
@@ -162,6 +183,7 @@ def collect_bot_data(days: int = 1) -> dict[str, Any]:
             "total_pnl": round(total_pnl, 2),
             "current_exposure": round(total_invested, 2),
         },
+        "prediction_calibration": prediction_stats,
         "trader_performance": trader_stats,
         "open_positions": [
             {
