@@ -24,6 +24,7 @@ from src.monitor.trader import TraderMonitor
 from src.notifier.telegram import TelegramNotifier
 from src.policy.drawdown import DrawdownManager
 from src.policy.portfolio_risk import PortfolioRiskManager
+from src.policy.regime import RegimeDetector
 from src.policy.risk_checklist import RiskChecklist
 from src.strategy.confluence import ConfluenceDetector
 from src.strategy.whale_conviction import WhaleConvictionTracker
@@ -77,6 +78,7 @@ class Bot:
         self._scanner = HighProbScanner()
         # Policy components
         self._drawdown = DrawdownManager(initial_equity=0.0)
+        self._regime = RegimeDetector()
         self._portfolio_risk = PortfolioRiskManager(
             max_exposure=config.max_total_exposure_usd,
         )
@@ -214,8 +216,16 @@ class Bot:
         from src.db.models import Position
 
         if isinstance(position, Position):
-            # Update drawdown tracker
+            # Update drawdown + regime trackers
             dd_state = self._drawdown.update_equity(pnl)
+            regime_state = self._regime.record_pnl(pnl)
+            if regime_state.regime.value != "NORMAL":
+                logger.info(
+                    "Regime: %s (conf: %.0f%%, kelly: %.2f, size: %.2f) — %s",
+                    regime_state.regime.value, regime_state.confidence * 100,
+                    regime_state.kelly_mult, regime_state.size_mult,
+                    regime_state.description,
+                )
             if dd_state.heat_level.value != "GREEN":
                 logger.warning(
                     "Drawdown heat: %s %s (DD: %.1f%%, sizing: %.0f%%)",

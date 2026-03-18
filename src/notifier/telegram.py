@@ -240,8 +240,31 @@ class TelegramNotifier:
             except Exception as e:
                 await update.message.reply_text(f"Erro: {e}")  # type: ignore[union-attr]
 
+        async def cmd_discover(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            if not await _check_auth(update):
+                return
+            await update.message.reply_text("Escaneando leaderboard...")  # type: ignore[union-attr]
+            try:
+                from src.discovery.leaderboard import LeaderboardScanner
+                scanner = LeaderboardScanner()
+                profiles = await scanner.scan(period="all", limit=30)
+                msg = scanner.format_discovery_message(profiles, top_n=5)
+                await update.message.reply_text(msg, parse_mode="HTML")  # type: ignore[union-attr]
+            except Exception as e:
+                await update.message.reply_text(f"Erro: {e}")  # type: ignore[union-attr]
+
+        async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            if not await _check_auth(update):
+                return
+            lines = ["<b>Risk Status:</b>"]
+            # This will be populated by the bot instance
+            lines.append("Use /status for full overview")
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")  # type: ignore[union-attr]
+
         app.add_handler(CommandHandler("settings", cmd_settings))
         app.add_handler(CommandHandler("analyze", cmd_analyze))
+        app.add_handler(CommandHandler("discover", cmd_discover))
+        app.add_handler(CommandHandler("risk", cmd_risk))
 
         self._app = app
         await app.initialize()
