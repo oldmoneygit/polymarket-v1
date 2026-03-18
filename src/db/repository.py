@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS positions (
     opened_at INTEGER NOT NULL,
     closed_at INTEGER,
     status TEXT NOT NULL DEFAULT 'open',
+    strategy TEXT NOT NULL DEFAULT 'copy_sports',
     pnl REAL,
     order_id TEXT,
     dry_run INTEGER NOT NULL DEFAULT 0
@@ -111,8 +112,8 @@ class Repository:
             "INSERT INTO positions "
             "(condition_id, token_id, side, outcome, entry_price, shares, "
             "usdc_invested, trader_copied, market_title, opened_at, "
-            "closed_at, status, pnl, order_id, dry_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "closed_at, status, strategy, pnl, order_id, dry_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 position.condition_id,
                 position.token_id,
@@ -126,6 +127,7 @@ class Repository:
                 position.opened_at,
                 position.closed_at,
                 position.status,
+                position.strategy,
                 position.pnl,
                 position.order_id,
                 1 if position.dry_run else 0,
@@ -307,6 +309,7 @@ class Repository:
             opened_at=row["opened_at"],
             closed_at=row["closed_at"],
             status=row["status"],
+            strategy=row["strategy"] if "strategy" in row.keys() else "copy_sports",
             pnl=row["pnl"],
             order_id=row["order_id"],
             dry_run=bool(row["dry_run"]),

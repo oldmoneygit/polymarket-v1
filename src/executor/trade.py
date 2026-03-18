@@ -16,6 +16,7 @@ from src.db.models import ExecutionResult, MarketInfo, Position, TraderTrade
 from src.db.repository import Repository
 from src.strategy.confluence import ConfluenceDetector, MarketSignal
 from src.strategy.kelly import fractional_kelly, estimate_win_prob_from_trader
+from src.strategy.strategy_config import get_strategy_for_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -358,6 +359,7 @@ class TradeExecutor:
                 market_title=trade.title,
                 opened_at=int(time.time()),
                 status="open",
+                strategy=get_strategy_for_wallet(trade.proxy_wallet),
                 order_id=order.order_id,
                 dry_run=config.dry_run,
             )

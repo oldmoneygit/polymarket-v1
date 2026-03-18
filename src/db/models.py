@@ -58,6 +58,7 @@ class Position:
     market_title: str
     opened_at: int  # Unix timestamp
     status: str = "open"  # "open", "won", "lost", "sold"
+    strategy: str = "copy_sports"  # "copy_sports", "copy_geopolitical", "ultra_fast"
     id: int | None = None
     closed_at: int | None = None
     pnl: float | None = None

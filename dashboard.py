@@ -80,6 +80,7 @@ def load_positions() -> pd.DataFrame:
             "Status": r["status"],
             "PnL": r["pnl"] if r["pnl"] is not None else 0.0,
             "Trader": _trader_name(r["trader_copied"]),
+            "Strategy": r["strategy"] if "strategy" in r.keys() else "copy_sports",
             "Opened": opened,
             "Closed": closed,
             "Dry Run": bool(r["dry_run"]),
@@ -254,63 +255,117 @@ def main() -> None:
 
     st.divider()
 
+    # ── Strategy breakdown ───────────────────────────────────────
+    STRATEGY_LABELS = {
+        "copy_sports": "Esportes/Esports",
+        "copy_geopolitical": "Geopolitica/Certezas",
+        "ultra_fast": "Ultra-Rapido (5min/15min)",
+    }
+    STRATEGY_COLORS = {
+        "copy_sports": "#3b82f6",
+        "copy_geopolitical": "#f59e0b",
+        "ultra_fast": "#ef4444",
+    }
+
+    if not positions_df.empty and "Strategy" in positions_df.columns:
+        st.divider()
+        scols = st.columns(3)
+        for i, (strat_key, strat_label) in enumerate(STRATEGY_LABELS.items()):
+            with scols[i]:
+                strat_df = positions_df[positions_df["Strategy"] == strat_key]
+                strat_open = strat_df[strat_df["Status"] == "open"]
+                strat_closed = strat_df[strat_df["Status"] != "open"]
+                strat_pnl = strat_closed["PnL"].sum() if not strat_closed.empty else 0.0
+                strat_exp = strat_open["Invested"].sum() if not strat_open.empty else 0.0
+                color = STRATEGY_COLORS[strat_key]
+                pnl_c = "#22c55e" if strat_pnl >= 0 else "#ef4444"
+                st.markdown(
+                    f"<div style='border-left:4px solid {color}; padding:8px 12px;'>"
+                    f"<b style='color:{color}'>{strat_label}</b><br/>"
+                    f"<span style='color:{pnl_c};font-size:1.3rem;font-weight:700'>P&L: ${strat_pnl:+.2f}</span><br/>"
+                    f"<span style='color:#888'>{len(strat_open)} pos | ${strat_exp:.2f} exp</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
     # ── Tabs ──────────────────────────────────────────────────────
-    tab_positions, tab_pnl, tab_feed, tab_traders = st.tabs([
-        "Posicoes Abertas", "P&L", "Trade Feed", "Traders"
+    tab_s1, tab_s2, tab_s3, tab_pnl, tab_feed = st.tabs([
+        "Esportes", "Geopolitica", "Ultra-Rapido", "P&L Global", "Trade Feed"
     ])
 
-    # ── TAB 1: Posicoes Abertas ───────────────────────────────────
-    with tab_positions:
-        if open_pos.empty:
-            st.info("Nenhuma posicao aberta no momento.")
-        else:
-            st.subheader(f"Posicoes Abertas ({len(open_pos)})")
+    # ── Helper: render strategy tab ─────────────────────────────
+    def render_strategy_tab(strat_key: str, strat_label: str) -> None:
+        if positions_df.empty or "Strategy" not in positions_df.columns:
+            st.info(f"Sem dados para {strat_label}.")
+            return
 
-            display = open_pos[["Market", "Outcome", "Entry", "Shares", "Invested", "Trader", "Opened"]].copy()
-            display["Entry"] = display["Entry"].apply(lambda x: f"{x:.0%}")
-            display["Invested"] = display["Invested"].apply(lambda x: f"${x:.2f}")
-            display["Shares"] = display["Shares"].apply(lambda x: f"{x:.2f}")
-            if "Opened" in display.columns:
-                display["Opened"] = display["Opened"].apply(
-                    lambda x: x.strftime("%m/%d %H:%M") if x else ""
-                )
+        strat_df = positions_df[positions_df["Strategy"] == strat_key]
+        if strat_df.empty:
+            st.info(f"Nenhuma posicao em {strat_label} ainda.")
+            return
 
-            st.dataframe(display, use_container_width=True, height=min(400, 40 + len(display) * 35))
+        s_open = strat_df[strat_df["Status"] == "open"]
+        s_closed = strat_df[strat_df["Status"] != "open"]
+        s_pnl = s_closed["PnL"].sum() if not s_closed.empty else 0.0
+        s_wins = len(s_closed[s_closed["Status"] == "won"]) if not s_closed.empty else 0
+        s_losses = len(s_closed[s_closed["Status"] == "lost"]) if not s_closed.empty else 0
+        s_tp = len(s_closed[s_closed["Status"] == "sold"]) if not s_closed.empty else 0
 
-            # Group by trader
-            st.subheader("Exposicao por Trader")
-            by_trader = open_pos.groupby("Trader").agg(
-                positions=("Invested", "count"),
-                total=("Invested", "sum"),
-            ).sort_values("total", ascending=False)
-            st.bar_chart(by_trader["total"])
+        # KPIs
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("P&L", f"${s_pnl:+.2f}")
+        with c2:
+            st.metric("Abertas", len(s_open))
+        with c3:
+            st.metric("Take-Profit", s_tp)
+        with c4:
+            wr = s_wins / (s_wins + s_losses) if (s_wins + s_losses) > 0 else 0
+            st.metric("Win Rate", f"{wr:.0%}" if (s_wins + s_losses) > 0 else "N/A")
 
-    # ── TAB 2: P&L ────────────────────────────────────────────────
+        # Open positions
+        if not s_open.empty:
+            st.subheader("Posicoes Abertas")
+            cols = ["Market", "Outcome", "Entry", "Invested", "Trader", "Opened"]
+            disp = s_open[[c for c in cols if c in s_open.columns]].copy()
+            if "Entry" in disp.columns:
+                disp["Entry"] = disp["Entry"].apply(lambda x: f"{x:.0%}")
+            if "Invested" in disp.columns:
+                disp["Invested"] = disp["Invested"].apply(lambda x: f"${x:.2f}")
+            if "Opened" in disp.columns:
+                disp["Opened"] = disp["Opened"].apply(lambda x: x.strftime("%m/%d %H:%M") if x else "")
+            st.dataframe(disp, use_container_width=True, height=min(300, 40 + len(disp) * 35))
+
+        # Closed positions
+        if not s_closed.empty:
+            st.subheader("Historico")
+            cols2 = ["Market", "Outcome", "PnL", "Status", "Trader", "Closed"]
+            disp2 = s_closed[[c for c in cols2 if c in s_closed.columns]].copy()
+            if "PnL" in disp2.columns:
+                disp2["PnL"] = disp2["PnL"].apply(lambda x: f"${x:+.2f}")
+            if "Status" in disp2.columns:
+                disp2["Status"] = disp2["Status"].str.upper()
+            if "Closed" in disp2.columns:
+                disp2["Closed"] = disp2["Closed"].apply(lambda x: x.strftime("%m/%d %H:%M") if x else "")
+            st.dataframe(disp2, use_container_width=True, height=min(300, 40 + len(disp2) * 35))
+
+    # ── Strategy Tabs ─────────────────────────────────────────────
+    with tab_s1:
+        render_strategy_tab("copy_sports", "Copy Trading Esportes")
+
+    with tab_s2:
+        render_strategy_tab("copy_geopolitical", "Copy Trading Geopolitica")
+
+    with tab_s3:
+        render_strategy_tab("ultra_fast", "Ultra-Rapido (5min/15min)")
+
+    # ── Global P&L Tab ────────────────────────────────────────────
     with tab_pnl:
         if closed_pos.empty:
-            st.info("Nenhuma posicao resolvida ainda. Aguardando mercados resolverem...")
+            st.info("Nenhuma posicao resolvida ainda.")
         else:
-            st.subheader("Historico de P&L")
-
-            # P&L curve
             if not daily_pnl_df.empty:
                 st.line_chart(daily_pnl_df.set_index("Date")["Cumulative"], color="#22c55e")
-
-            # Closed positions table
-            st.subheader(f"Posicoes Fechadas ({len(closed_pos)})")
-            closed_display = closed_pos[["Market", "Outcome", "Entry", "Invested", "PnL", "Status", "Trader", "Closed"]].copy()
-            closed_display["Entry"] = closed_display["Entry"].apply(lambda x: f"{x:.0%}")
-            closed_display["Invested"] = closed_display["Invested"].apply(lambda x: f"${x:.2f}")
-            closed_display["PnL"] = closed_display["PnL"].apply(lambda x: f"${x:+.2f}")
-            closed_display["Status"] = closed_display["Status"].str.upper()
-            if "Closed" in closed_display.columns:
-                closed_display["Closed"] = closed_display["Closed"].apply(
-                    lambda x: x.strftime("%m/%d %H:%M") if x else ""
-                )
-
-            st.dataframe(closed_display, use_container_width=True, height=min(400, 40 + len(closed_display) * 35))
-
-            # Stats
             col1, col2, col3 = st.columns(3)
             with col1:
                 avg_win = closed_pos[closed_pos["PnL"] > 0]["PnL"].mean() if wins > 0 else 0
@@ -322,7 +377,7 @@ def main() -> None:
                 profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else 0
                 st.metric("Profit Factor", f"{profit_factor:.2f}")
 
-    # ── TAB 3: Live Trade Feed ────────────────────────────────────
+    # ── Trade Feed Tab ────────────────────────────────────────────
     with tab_feed:
         with st.spinner("Buscando trades dos traders..."):
             df = fetch_all_traders(30)
@@ -347,39 +402,6 @@ def main() -> None:
                 height=500,
             )
 
-    # ── TAB 4: Traders ────────────────────────────────────────────
-    with tab_traders:
-        st.subheader("Traders Monitorados")
-
-        for wallet, info in TRADER_WALLETS.items():
-            tier_badge = "S" if info["tier"] == "S" else "A"
-            tier_color = "#eab308" if info["tier"] == "S" else "#3b82f6"
-
-            # Count positions from this trader
-            trader_positions = 0
-            trader_invested = 0.0
-            if not open_pos.empty:
-                tp = open_pos[open_pos["Trader"] == info["name"]]
-                trader_positions = len(tp)
-                trader_invested = tp["Invested"].sum()
-
-            st.markdown(
-                f"""
-                <div style='display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid #333;'>
-                    <span style='background:{tier_color}; color:white; padding:2px 8px; border-radius:8px; font-size:0.75rem; font-weight:700;'>{tier_badge}</span>
-                    <div>
-                        <strong>{info['name']}</strong> <span style='color:#888'>— {info['focus']}</span><br/>
-                        <code style='font-size:0.7rem'>{wallet}</code>
-                    </div>
-                    <div style='margin-left:auto; text-align:right;'>
-                        <span style='color:#3b82f6'>{trader_positions} pos</span> |
-                        <span>${trader_invested:.2f}</span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
     # ── Sidebar ───────────────────────────────────────────────────
     with st.sidebar:
         st.header("Controles")
@@ -391,9 +413,9 @@ def main() -> None:
         st.header("Config Ativa")
         st.code(
             f"Capital/trade: $2.00\n"
-            f"Max exposicao: $100\n"
-            f"Max prob: 75%\n"
-            f"Max age: 30min\n"
+            f"Max exposicao: $200\n"
+            f"Estrategias: 3\n"
+            f"Traders: 17 wallets\n"
             f"Take profit: 15%\n"
             f"Copy SELL: ON\n"
             f"Confluencia: ON",
