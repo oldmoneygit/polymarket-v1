@@ -1,5 +1,7 @@
 """Momentum / news edge detector — spots rapid price movements.
 
+# [MERGED FROM polymarket-v1] New module — detects rapid price changes.
+
 Can be bootstrapped with historical price data from CLOB API
 for immediate detection without waiting for observation window.
 """
@@ -42,7 +44,7 @@ class MomentumDetector:
     ) -> None:
         self._min_change = min_change_pct
         self._window_seconds = window_minutes * 60
-        # Key: condition_id → list of (timestamp, yes_price)
+        # Key: condition_id -> list of (timestamp, yes_price)
         self._price_history: dict[str, list[tuple[int, float]]] = {}
 
     def record_price(

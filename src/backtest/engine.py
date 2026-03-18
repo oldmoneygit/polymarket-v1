@@ -1,4 +1,7 @@
-"""Event-driven backtesting engine for Polymarket strategies."""
+"""Event-driven backtesting engine for Polymarket strategies.
+
+# [MERGED FROM polymarket-v1] New module — backtest simulation engine.
+"""
 
 from __future__ import annotations
 
@@ -144,7 +147,7 @@ class BacktestEngine:
 
         Args:
             trades: Chronologically sorted trades from monitored traders.
-            markets: Map of condition_id → MarketInfo (with resolution data).
+            markets: Map of condition_id -> MarketInfo (with resolution data).
         """
         result = BacktestResult(params=self._config_params)
         open_positions: list[BacktestTrade] = []

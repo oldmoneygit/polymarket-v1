@@ -23,6 +23,7 @@ from src.db.models import (
 from src.db.repository import Repository
 
 
+# [MERGED FROM polymarket-v1] Prevent Config.load from reading the real .env file
 @pytest.fixture(autouse=True)
 def _block_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent Config.load from reading the real .env file."""

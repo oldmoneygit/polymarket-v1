@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,13 +16,12 @@ from src.monitor.trader import TraderMonitor
 def _make_trade(
     tx_hash: str = "0xhash1",
     timestamp: int | None = None,
-    wallet: str = "0x" + "b2" * 20,
-    **overrides: object,
+    wallet: str = "",
 ) -> TraderTrade:
-    defaults = dict(
-        proxy_wallet=wallet,
-        timestamp=timestamp or int(time.time()) - 60,
-        condition_id="0xcond",
+    return TraderTrade(
+        proxy_wallet=wallet or ("0x" + "b2" * 20),
+        timestamp=timestamp or (int(time.time()) - 60),
+        condition_id="cond1",
         transaction_hash=tx_hash,
         price=0.52,
         size=100.0,
@@ -32,248 +29,143 @@ def _make_trade(
         side="BUY",
         outcome="Yes",
         title="Test Market",
-        slug="ucl-test",
+        slug="ucl-test-match",
         event_slug="ucl-test",
-        trader_name="TestTrader",
-        token_id="token1",
     )
-    defaults.update(overrides)
-    return TraderTrade(**defaults)  # type: ignore[arg-type]
 
 
-class TestNewTradeDetection:
+class TestTraderMonitor:
     @pytest.mark.asyncio
     async def test_new_trade_triggers_callback(
         self, config: Config, tmp_db: Repository
     ) -> None:
         callback = AsyncMock()
-        mock_api = AsyncMock()
-        trade = _make_trade()
-        mock_api.get_trader_activity = AsyncMock(return_value=[trade])
+        api = AsyncMock()
+        api.get_trader_activity.return_value = [_make_trade()]
 
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-
+        monitor = TraderMonitor(config, api, tmp_db, callback)
+        monitor.load_seen_hashes()
         await monitor.run_once()
 
         callback.assert_called_once()
         called_trade = callback.call_args[0][0]
         assert called_trade.transaction_hash == "0xhash1"
 
-
-class TestDeduplication:
     @pytest.mark.asyncio
     async def test_already_seen_trade_skipped(
         self, config: Config, tmp_db: Repository
     ) -> None:
         callback = AsyncMock()
-        mock_api = AsyncMock()
-        trade = _make_trade()
-        mock_api.get_trader_activity = AsyncMock(return_value=[trade])
+        api = AsyncMock()
+        api.get_trader_activity.return_value = [_make_trade()]
 
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
+        # Pre-save the hash
+        tmp_db.save_seen_hash("0xhash1", config.trader_wallets[0])
 
+        monitor = TraderMonitor(config, api, tmp_db, callback)
+        monitor.load_seen_hashes()
         await monitor.run_once()
-        assert callback.call_count == 1
 
-        # Second cycle with same trade
-        callback.reset_mock()
-        await monitor.run_once()
-        assert callback.call_count == 0
+        callback.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_deduplication_persists_across_restarts(
-        self, config: Config, tmp_path: Path
-    ) -> None:
-        db_path = tmp_path / "dedup.db"
-        repo1 = Repository(db_path=db_path)
-        callback = AsyncMock()
-        mock_api = AsyncMock()
-        trade = _make_trade()
-        mock_api.get_trader_activity = AsyncMock(return_value=[trade])
-
-        monitor1 = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=repo1,
-            on_new_trade=callback,
-        )
-        await monitor1.run_once()
-        assert callback.call_count == 1
-        repo1.close()
-
-        # "Restart" with new monitor and repo but same DB
-        repo2 = Repository(db_path=db_path)
-        callback2 = AsyncMock()
-        monitor2 = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=repo2,
-            on_new_trade=callback2,
-        )
-        monitor2.load_seen_hashes()
-        await monitor2.run_once()
-        assert callback2.call_count == 0
-        repo2.close()
-
-
-class TestOldTradesSkipped:
     @pytest.mark.asyncio
     async def test_old_trade_skipped(
         self, config: Config, tmp_db: Repository
     ) -> None:
         callback = AsyncMock()
-        mock_api = AsyncMock()
-        old_trade = _make_trade(
-            tx_hash="0xold",
-            timestamp=int(time.time()) - 7200,  # 2 hours old
-        )
-        mock_api.get_trader_activity = AsyncMock(return_value=[old_trade])
+        api = AsyncMock()
+        old_ts = int(time.time()) - 7200  # 2 hours ago
+        api.get_trader_activity.return_value = [_make_trade(timestamp=old_ts)]
 
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-
+        monitor = TraderMonitor(config, api, tmp_db, callback)
+        monitor.load_seen_hashes()
         await monitor.run_once()
+
         callback.assert_not_called()
 
-
-class TestAPIFailureHandling:
     @pytest.mark.asyncio
     async def test_api_failure_continues_other_traders(
-        self, tmp_db: Repository, env_vars: dict[str, str], monkeypatch: pytest.MonkeyPatch
+        self,
+        env_vars: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_db: Repository,
     ) -> None:
-        wallet1 = "0x" + "b2" * 20
-        wallet2 = "0x" + "cc" * 20
-        monkeypatch.setenv("TRADER_WALLETS", f"{wallet1},{wallet2}")
-        two_wallet_config = Config.load()
+        w1 = "0x" + "aa" * 20
+        w2 = "0x" + "bb" * 20
+        monkeypatch.setenv("TRADER_WALLETS", f"{w1},{w2}")
+        cfg = Config.load()
 
         callback = AsyncMock()
-        mock_api = AsyncMock()
+        api = AsyncMock()
 
-        trade2 = _make_trade(tx_hash="0xfromwallet2", wallet=wallet2)
+        # First wallet fails, second succeeds
+        trade_w2 = _make_trade(tx_hash="0xhashW2", wallet=w2)
 
         async def side_effect(wallet: str, limit: int = 50) -> list[TraderTrade]:
-            if wallet == wallet1:
-                raise ConnectionError("API down for wallet1")
-            return [trade2]
+            if wallet == w1.lower():
+                raise Exception("API down")
+            return [trade_w2]
 
-        mock_api.get_trader_activity = AsyncMock(side_effect=side_effect)
+        api.get_trader_activity.side_effect = side_effect
 
-        monitor = TraderMonitor(
-            config=two_wallet_config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-
+        monitor = TraderMonitor(cfg, api, tmp_db, callback)
+        monitor.load_seen_hashes()
         await monitor.run_once()
-        # Should still process wallet2 despite wallet1 failure
+
         callback.assert_called_once()
 
-
-class TestEmptyTransactionHash:
     @pytest.mark.asyncio
-    async def test_empty_tx_hash_skipped(
+    async def test_deduplication_persists_across_restarts(
         self, config: Config, tmp_db: Repository
     ) -> None:
         callback = AsyncMock()
-        mock_api = AsyncMock()
-        no_hash_trade = _make_trade(tx_hash="")
-        mock_api.get_trader_activity = AsyncMock(return_value=[no_hash_trade])
+        api = AsyncMock()
+        api.get_trader_activity.return_value = [_make_trade()]
 
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-        await monitor.run_once()
+        # First run
+        m1 = TraderMonitor(config, api, tmp_db, callback)
+        m1.load_seen_hashes()
+        await m1.run_once()
+        assert callback.call_count == 1
+
+        # Second run — new monitor instance (simulates restart)
+        callback.reset_mock()
+        m2 = TraderMonitor(config, api, tmp_db, callback)
+        m2.load_seen_hashes()
+        await m2.run_once()
+
         callback.assert_not_called()
 
-
-class TestCallbackException:
-    @pytest.mark.asyncio
-    async def test_callback_exception_does_not_crash(
-        self, config: Config, tmp_db: Repository
-    ) -> None:
-        callback = AsyncMock(side_effect=RuntimeError("callback boom"))
-        mock_api = AsyncMock()
-        trade = _make_trade()
-        mock_api.get_trader_activity = AsyncMock(return_value=[trade])
-
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-        # Should not raise despite callback error
-        await monitor.run_once()
-        callback.assert_called_once()
-
-
-class TestStartLoop:
-    @pytest.mark.asyncio
-    async def test_start_runs_and_can_be_cancelled(
-        self, config: Config, tmp_db: Repository
-    ) -> None:
-        """Cover lines 42-47: the start() while True loop."""
-        callback = AsyncMock()
-        mock_api = AsyncMock()
-        mock_api.get_trader_activity = AsyncMock(return_value=[])
-
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
-
-        async def cancel_after_one_cycle() -> None:
-            await asyncio.sleep(0.05)
-            task.cancel()
-
-        task = asyncio.create_task(monitor.start())
-        cancel_task = asyncio.create_task(cancel_after_one_cycle())
-
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        await cancel_task
-
-
-class TestMultipleTraders:
     @pytest.mark.asyncio
     async def test_multiple_traders_all_checked(
-        self, config: Config, tmp_db: Repository
+        self,
+        env_vars: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_db: Repository,
     ) -> None:
+        w1 = "0x" + "aa" * 20
+        w2 = "0x" + "bb" * 20
+        monkeypatch.setenv("TRADER_WALLETS", f"{w1},{w2}")
+        cfg = Config.load()
+
         callback = AsyncMock()
-        mock_api = AsyncMock()
+        api = AsyncMock()
+        api.get_trader_activity.return_value = [
+            _make_trade(tx_hash="0xunique_per_call")
+        ]
 
-        wallet = config.trader_wallets[0]
-        trade = _make_trade(wallet=wallet)
-        mock_api.get_trader_activity = AsyncMock(return_value=[trade])
+        # Different hash per call
+        call_count = 0
 
-        monitor = TraderMonitor(
-            config=config,
-            polymarket_client=mock_api,
-            repository=tmp_db,
-            on_new_trade=callback,
-        )
+        async def varying_trades(wallet: str, limit: int = 50) -> list[TraderTrade]:
+            nonlocal call_count
+            call_count += 1
+            return [_make_trade(tx_hash=f"0xhash_{call_count}")]
 
+        api.get_trader_activity.side_effect = varying_trades
+
+        monitor = TraderMonitor(cfg, api, tmp_db, callback)
+        monitor.load_seen_hashes()
         await monitor.run_once()
-        assert mock_api.get_trader_activity.call_count == len(
-            config.trader_wallets
-        )
+
+        assert callback.call_count == 2

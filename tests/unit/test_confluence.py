@@ -31,7 +31,6 @@ class TestConfluenceDetector:
 
     def test_tier_s_weighted_higher(self) -> None:
         det = ConfluenceDetector()
-        # JaJackson is Tier S (weight 3)
         signal = det.record_trade(
             "cond1", "Test", "Yes",
             "0xf195721ad850377c96cd634457c70cd9e8308057", 1000.0
@@ -48,7 +47,6 @@ class TestConfluenceDetector:
 
     def test_strength_levels(self) -> None:
         det = ConfluenceDetector()
-        # Two Tier S = 6 → STRONG
         det.record_trade(
             "cond1", "Test", "Yes",
             "0xf195721ad850377c96cd634457c70cd9e8308057", 100.0
@@ -61,7 +59,6 @@ class TestConfluenceDetector:
 
     def test_moderate_strength(self) -> None:
         det = ConfluenceDetector()
-        # One Tier S (3) + one Tier A (1) = 4 → MODERATE
         det.record_trade(
             "cond1", "Test", "Yes",
             "0xf195721ad850377c96cd634457c70cd9e8308057", 100.0
@@ -77,7 +74,6 @@ class TestConfluenceDetector:
         det.record_trade("cond1", "Test", "Yes", "0xaaa", 100.0)
         det.record_trade("cond1", "Test", "Yes", "0xbbb", 200.0)
         det.record_trade("cond2", "Test2", "No", "0xccc", 50.0)
-
         confluences = det.get_active_confluences()
         assert len(confluences) == 1
         assert confluences[0].condition_id == "cond1"
@@ -94,4 +90,4 @@ class TestConfluenceDetector:
         det = ConfluenceDetector()
         det.record_trade("cond1", "Test", "Yes", "0xaaa", 100.0)
         det.record_trade("cond1", "Test", "No", "0xbbb", 100.0)
-        assert len(det.get_active_confluences()) == 0  # Different outcomes
+        assert len(det.get_active_confluences()) == 0

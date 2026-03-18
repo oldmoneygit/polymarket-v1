@@ -1,4 +1,7 @@
-"""WebSocket client for real-time Polymarket CLOB data."""
+"""WebSocket client for real-time Polymarket CLOB data.
+
+# [MERGED FROM polymarket-v1] New module — real-time market data via WebSocket.
+"""
 
 from __future__ import annotations
 

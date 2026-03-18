@@ -1,4 +1,7 @@
-"""Structured error hierarchy for the Polymarket bot."""
+"""Structured error hierarchy for the Polymarket bot.
+
+# [MERGED FROM polymarket-v1] New module — typed errors with retry classification.
+"""
 
 from __future__ import annotations
 

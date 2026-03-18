@@ -1,4 +1,7 @@
-"""High-probability market scanner — finds near-certain markets about to resolve."""
+"""High-probability market scanner — finds near-certain markets about to resolve.
+
+# [MERGED FROM polymarket-v1] New module — Wannac strategy scanner.
+"""
 
 from __future__ import annotations
 

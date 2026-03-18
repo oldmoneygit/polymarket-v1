@@ -1,11 +1,11 @@
-"""Unit tests for src/backtest/engine.py and optimizer."""
+"""Unit tests for src/backtest/engine.py."""
 
 from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
 
-from src.backtest.engine import BacktestEngine, BacktestResult
+from src.backtest.engine import BacktestEngine, BacktestResult, BacktestTrade
 from src.db.models import MarketInfo, TraderTrade
 
 
@@ -83,11 +83,11 @@ class TestBacktestEngine:
     def test_deduplication(self) -> None:
         trades = [
             _trade(price=0.52, condition_id="cond1"),
-            _trade(price=0.55, condition_id="cond1"),  # Same market
+            _trade(price=0.55, condition_id="cond1"),
         ]
         markets = {"cond1": _market()}
         result = BacktestEngine().run(trades, markets)
-        assert result.total_trades == 1  # Only first entry
+        assert result.total_trades == 1
 
     def test_multiple_markets(self) -> None:
         trades = [
@@ -113,7 +113,6 @@ class TestBacktestResult:
         assert BacktestResult().win_rate == 0.0
 
     def test_profit_factor(self) -> None:
-        from src.backtest.engine import BacktestTrade
         r = BacktestResult(trades=[
             BacktestTrade(0, "c1", "T", "Yes", 0.5, 5, "0x", True, True, 1.0, 4.0),
             BacktestTrade(0, "c2", "T", "Yes", 0.5, 5, "0x", True, False, 0.0, -5.0),
@@ -121,7 +120,6 @@ class TestBacktestResult:
         assert r.profit_factor == 4.0 / 5.0
 
     def test_sharpe_estimate(self) -> None:
-        from src.backtest.engine import BacktestTrade
         r = BacktestResult(
             resolved_trades=3,
             trades=[

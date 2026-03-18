@@ -2,3 +2,6 @@ aiohttp>=3.9.0
 python-dotenv>=1.0.0
 python-telegram-bot>=21.0
 py-clob-client>=0.18.0
+# [MERGED FROM polymarket-v1] Dashboard dependencies
+streamlit>=1.30.0
+pandas>=2.0.0

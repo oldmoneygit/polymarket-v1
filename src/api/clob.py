@@ -1,4 +1,9 @@
-"""CLOB API client for order execution on Polymarket."""
+"""CLOB API client for order execution on Polymarket.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds OrderBookSummary, get_order_book(),
+# estimate_slippage(), get_price_history(), create_fak_order(), create_gtd_order(),
+# close(), and uses structured PolymarketError.
+"""
 
 from __future__ import annotations
 
@@ -81,7 +86,8 @@ class CLOBClient:
             )
         return self._http_session
 
-    # ── Order Book ────────────────────────────────────────────
+    # -- Order Book -------------------------------------------------------
+    # [MERGED FROM polymarket-v1] New method
 
     async def get_order_book(self, token_id: str) -> OrderBookSummary:
         """Fetch order book and return summary with liquidity info."""
@@ -131,6 +137,7 @@ class CLOBClient:
             ask_depth_usd=ask_depth,
         )
 
+    # [MERGED FROM polymarket-v1] New method
     def estimate_slippage(
         self, book: OrderBookSummary, amount_usd: float, side: str = "BUY"
     ) -> float:
@@ -153,7 +160,8 @@ class CLOBClient:
             return 0.0  # Small order, negligible slippage
         return min(amount_usd / available, 1.0)
 
-    # ── Price History ─────────────────────────────────────────
+    # -- Price History ----------------------------------------------------
+    # [MERGED FROM polymarket-v1] New method
 
     async def get_price_history(
         self, token_id: str, interval: str = "1h", fidelity: int = 60
@@ -183,12 +191,12 @@ class CLOBClient:
             logger.debug("Price history fetch failed for %s", token_id)
             return []
 
-    # ── Balance & Positions ───────────────────────────────────
+    # -- Balance & Positions ----------------------------------------------
 
     async def get_balance(self) -> float:
         """Return available USDC balance."""
         if self._config.dry_run:
-            logger.info("[DRY RUN] get_balance → returning simulated $1000.00")
+            logger.info("[DRY RUN] get_balance -> returning simulated $1000.00")
             return 1000.0
 
         if self._client is None:
@@ -203,7 +211,7 @@ class CLOBClient:
     async def get_open_positions(self) -> list[dict[str, object]]:
         """Return open positions from the CLOB."""
         if self._config.dry_run:
-            logger.info("[DRY RUN] get_open_positions → returning empty list")
+            logger.info("[DRY RUN] get_open_positions -> returning empty list")
             return []
 
         if self._client is None:
@@ -215,7 +223,7 @@ class CLOBClient:
         except Exception as exc:
             raise PolymarketError.network(f"Failed to get positions: {exc}") from exc
 
-    # ── Order Placement ───────────────────────────────────────
+    # -- Order Placement --------------------------------------------------
 
     async def create_market_order(
         self, token_id: str, side: str, amount_usdc: float
@@ -263,6 +271,7 @@ class CLOBClient:
                 f"Order execution failed: {exc}", ErrorCode.API_ERROR
             ) from exc
 
+    # [MERGED FROM polymarket-v1] New method — FAK orders
     async def create_fak_order(
         self, token_id: str, side: str, price: float, size: float
     ) -> OrderResult:
@@ -313,6 +322,7 @@ class CLOBClient:
                 f"FAK order failed: {exc}", ErrorCode.API_ERROR
             ) from exc
 
+    # [MERGED FROM polymarket-v1] New method — GTD orders
     async def create_gtd_order(
         self, token_id: str, side: str, price: float, size: float, expiration_ts: int
     ) -> OrderResult:

@@ -13,22 +13,18 @@ from src.strategy.kelly import (
 
 class TestKellyFraction:
     def test_positive_edge(self) -> None:
-        # 60% win rate, even odds (1:1)
         f = kelly_fraction(0.60, 1.0)
         assert f == pytest.approx(0.20)
 
     def test_no_edge(self) -> None:
-        # 50% win rate, even odds → Kelly = 0
         f = kelly_fraction(0.50, 1.0)
         assert f == pytest.approx(0.0)
 
     def test_negative_edge(self) -> None:
-        # 40% win rate → negative Kelly (don't bet)
         f = kelly_fraction(0.40, 1.0)
         assert f < 0
 
     def test_high_odds(self) -> None:
-        # 94% win rate at price 0.60 → odds = 0.667
         odds = 0.40 / 0.60
         f = kelly_fraction(0.94, odds)
         assert f > 0.5
@@ -45,7 +41,7 @@ class TestFractionalKelly:
             win_prob=0.70, price=0.52, bankroll=500, fraction=0.25
         )
         assert size > 0
-        assert size <= 50.0  # Max cap
+        assert size <= 50.0
 
     def test_negative_edge_returns_zero(self) -> None:
         size = fractional_kelly(win_prob=0.30, price=0.52, bankroll=500)

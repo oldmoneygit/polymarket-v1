@@ -1,4 +1,8 @@
-"""SQLite repository for persistence — no ORM, raw sqlite3."""
+"""SQLite repository for persistence — no ORM, raw sqlite3.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds find_open_position() and
+# update_position_average() for position averaging support.
+"""
 
 from __future__ import annotations
 
@@ -64,7 +68,7 @@ class Repository:
     def close(self) -> None:
         self._conn.close()
 
-    # ── seen_hashes ──────────────────────────────────────────────
+    # -- seen_hashes -------------------------------------------------------
 
     def save_seen_hash(self, hash_: str, trader_wallet: str) -> None:
         self._conn.execute(
@@ -87,7 +91,7 @@ class Repository:
         ).fetchall()
         return {row["hash"] for row in rows}
 
-    # ── positions ────────────────────────────────────────────────
+    # -- positions ---------------------------------------------------------
 
     def save_position(self, position: Position) -> int:
         cursor = self._conn.execute(
@@ -132,6 +136,7 @@ class Repository:
         )
         self._conn.commit()
 
+    # [MERGED FROM polymarket-v1] New method — find existing position for averaging
     def find_open_position(
         self, condition_id: str, outcome: str
     ) -> Position | None:
@@ -144,6 +149,7 @@ class Repository:
             return None
         return self._row_to_position(row)
 
+    # [MERGED FROM polymarket-v1] New method — update position with averaged values
     def update_position_average(
         self, position_id: int, shares: float, usdc_invested: float, avg_price: float
     ) -> None:
@@ -161,7 +167,7 @@ class Repository:
         ).fetchone()
         return float(row["total"])
 
-    # ── P&L ──────────────────────────────────────────────────────
+    # -- P&L ---------------------------------------------------------------
 
     def get_daily_pnl(self, target_date: date | None = None) -> float:
         if target_date is None:
@@ -201,7 +207,7 @@ class Repository:
             daily[d] = daily.get(d, 0.0) + row["pnl"]
         return sorted(daily.items())
 
-    # ── bot_state ────────────────────────────────────────────────
+    # -- bot_state ---------------------------------------------------------
 
     def get_state(self, key: str, default: str = "") -> str:
         row = self._conn.execute(
@@ -219,7 +225,7 @@ class Repository:
         )
         self._conn.commit()
 
-    # ── helpers ──────────────────────────────────────────────────
+    # -- helpers -----------------------------------------------------------
 
     @staticmethod
     def _row_to_position(row: sqlite3.Row) -> Position:

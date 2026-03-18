@@ -1,4 +1,8 @@
-"""Polymarket Data API and Gamma API client."""
+"""Polymarket Data API and Gamma API client.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds rate limiter integration,
+# SPORTS_SLUG_PREFIXES for better detection, sportsMarketType field support.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ from typing import Any
 
 import aiohttp
 
-from src.api.rate_limiter import PolymarketRateLimiter
+from src.api.rate_limiter import PolymarketRateLimiter  # [MERGED FROM polymarket-v1]
 from src.db.models import MarketInfo, TraderTrade
 
 logger = logging.getLogger(__name__)
@@ -21,7 +25,7 @@ REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 MAX_RETRIES = 3
 RETRY_BACKOFFS = [1, 2, 4]  # seconds
 
-# Slug prefixes from Gamma API — these are definitive sport identifiers
+# [MERGED FROM polymarket-v1] Slug prefixes from Gamma API — definitive sport identifiers
 SPORTS_SLUG_PREFIXES: list[str] = [
     "nba-", "nhl-", "nfl-", "mlb-", "mls-",
     "cbb-",  # College basketball (NCAA)
@@ -54,6 +58,7 @@ class APIError(Exception):
     """Raised on non-recoverable API errors."""
 
 
+# [MERGED FROM polymarket-v1] Enhanced — adds slug prefix matching and extra context
 def _detect_category(slug: str, event_slug: str, extra: str = "") -> str:
     """Classify a market based on slug prefixes and keywords."""
     slug_lower = slug.lower()
@@ -74,7 +79,7 @@ class PolymarketClient:
     def __init__(self, session: aiohttp.ClientSession | None = None) -> None:
         self._external_session = session is not None
         self._session = session
-        self._rate_limiter = PolymarketRateLimiter()
+        self._rate_limiter = PolymarketRateLimiter()  # [MERGED FROM polymarket-v1]
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -86,7 +91,7 @@ class PolymarketClient:
             await self._session.close()
 
     async def _get_with_retry(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        await self._rate_limiter.acquire_get()
+        await self._rate_limiter.acquire_get()  # [MERGED FROM polymarket-v1]
         session = await self._get_session()
         last_error: Exception | None = None
         for attempt in range(MAX_RETRIES):
@@ -110,7 +115,7 @@ class PolymarketClient:
                 raise last_error from exc
         raise last_error or APIError("Unexpected retry exhaustion")  # pragma: no cover
 
-    # ── Public API ───────────────────────────────────────────────
+    # -- Public API -------------------------------------------------------
 
     async def get_trader_activity(
         self, wallet: str, limit: int = 50
@@ -135,7 +140,7 @@ class PolymarketClient:
             return None
         return self._parse_market(markets[0])
 
-    # ── Parsing ──────────────────────────────────────────────────
+    # -- Parsing ----------------------------------------------------------
 
     @staticmethod
     def _parse_trade(raw: dict[str, Any], wallet: str) -> TraderTrade:
@@ -163,6 +168,7 @@ class PolymarketClient:
         slug = raw.get("slug", raw.get("market_slug", ""))
         event_slug = raw.get("event_slug", raw.get("eventSlug", ""))
         category = raw.get("category", "")
+        # [MERGED FROM polymarket-v1] Enhanced category detection
         group_title = raw.get("groupItemTitle", raw.get("group_item_title", ""))
         question = raw.get("question", raw.get("title", ""))
         sports_market_type = raw.get("sportsMarketType", "")

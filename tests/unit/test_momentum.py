@@ -18,12 +18,12 @@ class TestMomentumDetector:
         det = MomentumDetector(min_change_pct=0.10)
         det.record_price("cond1", 0.50, "Test?")
         signal = det.record_price("cond1", 0.52, "Test?")
-        assert signal is None  # 4% < 10%
+        assert signal is None
 
     def test_detects_upward_momentum(self) -> None:
         det = MomentumDetector(min_change_pct=0.10)
         now = int(time.time())
-        det._price_history["cond1"] = [(now - 600, 0.50)]  # 10 min ago
+        det._price_history["cond1"] = [(now - 600, 0.50)]
         signal = det.record_price("cond1", 0.60, "Team A wins?", "nba-test")
         assert signal is not None
         assert signal.direction == "UP"
@@ -41,11 +41,11 @@ class TestMomentumDetector:
         det = MomentumDetector(window_minutes=5)
         now = int(time.time())
         det._price_history["cond1"] = [
-            (now - 600, 0.50),  # 10 min ago — outside 5 min window
-            (now - 120, 0.52),  # 2 min ago — inside window
+            (now - 600, 0.50),
+            (now - 120, 0.52),
         ]
         det.record_price("cond1", 0.53, "Test?")
-        assert len(det._price_history["cond1"]) == 2  # Old one trimmed
+        assert len(det._price_history["cond1"]) == 2
 
     def test_cleanup_stale(self) -> None:
         det = MomentumDetector(window_minutes=5)
@@ -62,4 +62,4 @@ class TestMomentumDetector:
         now = int(time.time())
         det._price_history["cond1"] = [(now - 60, 0.0)]
         signal = det.record_price("cond1", 0.50, "Test?")
-        assert signal is None  # Can't divide by zero
+        assert signal is None

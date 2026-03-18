@@ -1,5 +1,7 @@
 """Rate limiter middleware to prevent Cloudflare throttling on Polymarket APIs.
 
+# [MERGED FROM polymarket-v1] New module — token bucket rate limiting.
+
 Limits based on documented Polymarket rate limits:
 - GET /price: 100 req / 10s
 - GET /markets: 50 req / 10s

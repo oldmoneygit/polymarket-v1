@@ -1,4 +1,7 @@
-"""Confluence detector — amplifies signals when multiple traders agree."""
+"""Confluence detector — amplifies signals when multiple traders agree.
+
+# [MERGED FROM polymarket-v1] New module — multi-trader signal detection.
+"""
 
 from __future__ import annotations
 
@@ -59,7 +62,7 @@ class ConfluenceDetector:
 
     def __init__(self, window_seconds: int = 7200) -> None:
         self._window = window_seconds
-        # Key: (condition_id, outcome) → MarketSignal
+        # Key: (condition_id, outcome) -> MarketSignal
         self._signals: dict[tuple[str, str], MarketSignal] = {}
 
     def record_trade(

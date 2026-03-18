@@ -12,6 +12,13 @@ from src.db.repository import Repository
 logger = logging.getLogger(__name__)
 
 
+def _format_pnl(value: float) -> str:
+    """Format P&L as +$X.XX or -$X.XX."""
+    if value >= 0:
+        return f"+${value:.2f}"
+    return f"-${abs(value):.2f}"
+
+
 class TelegramNotifier:
     """Formats and sends Telegram notifications."""
 
@@ -97,7 +104,7 @@ class TelegramNotifier:
             f"Investido: ${position.usdc_invested:.2f}\n"
             f"Recebido: ${received:.2f}\n"
             f"Lucro: +${pnl:.2f} (+{pct:.0f}%)\n"
-            f"P&L do dia: ${daily_pnl:+.2f}"
+            f"P&L do dia: {_format_pnl(daily_pnl)}"
         )
 
     @staticmethod
@@ -110,7 +117,7 @@ class TelegramNotifier:
             f"Resultado: {position.outcome} \u2717\n"
             f"Investido: ${position.usdc_invested:.2f}\n"
             f"Perda: -${abs(pnl):.2f}\n"
-            f"P&L do dia: ${daily_pnl:+.2f}"
+            f"P&L do dia: {_format_pnl(daily_pnl)}"
         )
 
     @staticmethod

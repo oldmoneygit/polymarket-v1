@@ -1,4 +1,8 @@
-"""Trader activity monitor — polls the Data API for new trades."""
+"""Trader activity monitor — polls the Data API for new trades.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds per-market copy cooldown
+# to prevent duplicate positions on the same market from the same trader.
+"""
 
 from __future__ import annotations
 
@@ -31,8 +35,8 @@ class TraderMonitor:
         self._on_new_trade = on_new_trade
         self._seen_hashes: set[str] = set()
         self._consecutive_failures: dict[str, int] = {}
-        # Track copied markets per trader to avoid duplicating positions
-        # Key: (wallet, condition_id) → timestamp of first copy
+        # [MERGED FROM polymarket-v1] Track copied markets per trader to avoid duplicating positions
+        # Key: (wallet, condition_id) -> timestamp of first copy
         self._copied_markets: dict[tuple[str, str], int] = {}
         self._copy_cooldown_seconds = 3600  # 1 hour cooldown per market per trader
 
@@ -89,7 +93,8 @@ class TraderMonitor:
             self._seen_hashes.add(tx_hash)
             self._repo.save_seen_hash(tx_hash, wallet)
 
-            # Dedup: skip if we already copied this market for this trader recently
+            # [MERGED FROM polymarket-v1] Dedup: skip if we already copied this market
+            # for this trader recently
             market_key = (wallet, trade.condition_id)
             last_copy = self._copied_markets.get(market_key, 0)
             if now - last_copy < self._copy_cooldown_seconds:

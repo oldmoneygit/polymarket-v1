@@ -1,4 +1,7 @@
-"""Kelly Criterion position sizing — dynamic allocation based on estimated edge."""
+"""Kelly Criterion position sizing — dynamic allocation based on estimated edge.
+
+# [MERGED FROM polymarket-v1] New module — Kelly Criterion for position sizing.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ def kelly_fraction(win_prob: float, odds: float) -> float:
     Args:
         win_prob: Estimated probability of winning (0-1).
         odds: Payout odds (profit/risk ratio). For Polymarket:
-              odds = (1 - price) / price  (e.g., price=0.60 → odds=0.667)
+              odds = (1 - price) / price  (e.g., price=0.60 -> odds=0.667)
 
     Returns:
         Optimal fraction of bankroll to bet (can be negative = don't bet).

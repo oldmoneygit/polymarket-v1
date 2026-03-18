@@ -1,4 +1,8 @@
-"""Trade executor — places orders on the CLOB after safety checks."""
+"""Trade executor — places orders on the CLOB after safety checks.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds order book pre-checks (liquidity,
+# slippage estimation), position averaging support, and safety constants.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ from src.db.repository import Repository
 
 logger = logging.getLogger(__name__)
 
+# [MERGED FROM polymarket-v1] New safety constants
 # Max acceptable slippage before skipping trade
 MAX_SLIPPAGE = 0.05  # 5%
 # Min order book depth required (USD)
@@ -73,6 +78,7 @@ class TradeExecutor:
         token_id = trade.token_id or trade.condition_id
 
         # 5. Order book pre-check (liquidity + slippage)
+        # [MERGED FROM polymarket-v1] New safety checks
         try:
             book = await self._clob.get_order_book(token_id)
             if not book.has_liquidity and not config.dry_run:
@@ -101,6 +107,7 @@ class TradeExecutor:
             logger.debug("Order book check failed, proceeding anyway")
 
         # 6. Check for existing position (averaging support)
+        # [MERGED FROM polymarket-v1] New — position averaging
         existing = self._repo.find_open_position(trade.condition_id, trade.outcome)
         if existing is not None:
             logger.info(
@@ -108,7 +115,7 @@ class TradeExecutor:
                 trade.outcome, trade.title[:30], existing.usdc_invested,
             )
 
-        # 7. Execute order (FAK for partial fills when live, FOK for dry-run)
+        # 7. Execute order
         try:
             order = await self._clob.create_market_order(
                 token_id=token_id,
@@ -125,6 +132,7 @@ class TradeExecutor:
         shares = order.filled_size if order.filled_size > 0 else (amount / entry_price if entry_price > 0 else 0)
         usdc_invested = amount
 
+        # [MERGED FROM polymarket-v1] Position averaging support
         if existing is not None:
             # Average into existing position
             total_invested = existing.usdc_invested + usdc_invested

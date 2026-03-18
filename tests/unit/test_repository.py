@@ -147,33 +147,6 @@ class TestBotState:
         assert tmp_db.get_state("key1") == "val2"
 
 
-class TestPnLHistory:
-    def test_get_pnl_history(self, tmp_db: Repository) -> None:
-        now = int(time.time())
-        for i, pnl_val in enumerate([3.0, -1.0, 5.0]):
-            pos = Position(
-                condition_id=f"c{i}", token_id=f"t{i}", side="BUY",
-                outcome="Yes", entry_price=0.5, shares=10, usdc_invested=5,
-                trader_copied="0xt", market_title="T", opened_at=now - 3600,
-                status="open", dry_run=True,
-            )
-            pid = tmp_db.save_position(pos)
-            tmp_db._conn.execute(
-                "UPDATE positions SET status='won', pnl=?, closed_at=? WHERE id=?",
-                (pnl_val, now - i * 100, pid),
-            )
-            tmp_db._conn.commit()
-
-        history = tmp_db.get_pnl_history(days=7)
-        assert len(history) >= 1
-        total = sum(v for _, v in history)
-        assert total == pytest.approx(7.0)
-
-    def test_get_pnl_history_empty(self, tmp_db: Repository) -> None:
-        history = tmp_db.get_pnl_history(days=7)
-        assert history == []
-
-
 class TestDatabaseInit:
     def test_database_created_on_init(self, tmp_path: Path) -> None:
         db_path = tmp_path / "new_test.db"

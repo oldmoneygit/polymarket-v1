@@ -1,4 +1,9 @@
-"""Entry point — starts all bot services concurrently."""
+"""Entry point — starts all bot services concurrently.
+
+# [MERGED FROM polymarket-v1] Enhanced — adds ConfluenceDetector, MomentumDetector,
+# HighProbScanner integration in the trade pipeline. Filtered trades no longer
+# send Telegram notifications (only logged).
+"""
 
 from __future__ import annotations
 
@@ -17,10 +22,10 @@ from src.executor.trade import TradeExecutor
 from src.monitor.position import PositionMonitor
 from src.monitor.trader import TraderMonitor
 from src.notifier.telegram import TelegramNotifier
-from src.strategy.confluence import ConfluenceDetector
+from src.strategy.confluence import ConfluenceDetector  # [MERGED FROM polymarket-v1]
 from src.strategy.filter import TradeFilter
-from src.strategy.momentum import MomentumDetector
-from src.strategy.scanner import HighProbScanner
+from src.strategy.momentum import MomentumDetector  # [MERGED FROM polymarket-v1]
+from src.strategy.scanner import HighProbScanner  # [MERGED FROM polymarket-v1]
 
 logger = logging.getLogger("polymarket_bot")
 
@@ -61,6 +66,7 @@ class Bot:
         self._polymarket = PolymarketClient()
         self._clob = CLOBClient(config)
         self._filter = TradeFilter()
+        # [MERGED FROM polymarket-v1] New strategy components
         self._confluence = ConfluenceDetector()
         self._momentum = MomentumDetector()
         self._scanner = HighProbScanner()
@@ -81,13 +87,13 @@ class Bot:
         )
 
     async def _handle_new_trade(self, trade: TraderTrade) -> None:
-        """Pipeline: detect → filter → execute → notify."""
+        """Pipeline: detect -> filter -> execute -> notify."""
         # Check if paused
         if self._repo.get_state("paused", "false") == "true":
             logger.info("Bot is paused, skipping trade %s", trade.transaction_hash)
             return
 
-        # Record confluence signal (before any filtering)
+        # [MERGED FROM polymarket-v1] Record confluence signal (before any filtering)
         self._confluence.record_trade(
             condition_id=trade.condition_id,
             title=trade.title,
@@ -102,7 +108,7 @@ class Bot:
             logger.warning("Market not found: %s", trade.condition_id)
             return
 
-        # Track momentum
+        # [MERGED FROM polymarket-v1] Track momentum
         self._momentum.record_price(
             condition_id=trade.condition_id,
             yes_price=market.yes_price,
@@ -110,7 +116,7 @@ class Bot:
             slug=market.slug,
         )
 
-        # Check scanner (high-prob opportunities)
+        # [MERGED FROM polymarket-v1] Check scanner (high-prob opportunities)
         scan_signal = self._scanner.evaluate(market)
         if scan_signal is not None:
             logger.info(

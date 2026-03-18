@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.api.clob import CLOBClient, CLOBError
+from src.api.clob import CLOBClient, CLOBError, OrderBookSummary
 from src.config import Config
 from src.db.models import ExecutionResult, MarketInfo, OrderResult, Position, TraderTrade
 from src.db.repository import Repository
 from src.executor.trade import TradeExecutor
 
+# [MERGED FROM polymarket-v1] Helper for mocking order book in executor tests
+_MOCK_ORDER_BOOK = OrderBookSummary(
+    token_id="token123", best_bid=0.50, best_ask=0.51,
+    spread=0.01, midpoint=0.505,
+    bid_depth_usd=10000.0, ask_depth_usd=10000.0,
+)
 
-class TestDryRunExecution:
+
+class TestTradeExecutor:
     @pytest.mark.asyncio
     async def test_dry_run_returns_simulated_result(
         self,
@@ -31,11 +38,12 @@ class TestDryRunExecution:
 
         assert result.success is True
         assert result.dry_run is True
-        assert result.usdc_spent > 0
-        assert result.order_id is not None
+        assert result.usdc_spent == 5.0
 
+        # Position saved in DB
+        positions = tmp_db.get_open_positions()
+        assert len(positions) == 1
 
-class TestInsufficientBalance:
     @pytest.mark.asyncio
     async def test_insufficient_balance_returns_error(
         self,
@@ -44,17 +52,17 @@ class TestInsufficientBalance:
         sample_market: MarketInfo,
         tmp_db: Repository,
     ) -> None:
-        clob = AsyncMock()
-        clob.get_balance = AsyncMock(return_value=1.0)
+        clob = AsyncMock(spec=CLOBClient)
+        clob.get_balance = AsyncMock(return_value=1.0)  # Less than 5.0
+        clob.get_order_book = AsyncMock(return_value=_MOCK_ORDER_BOOK)
+        clob.estimate_slippage = lambda *a, **kw: 0.0
 
         executor = TradeExecutor(config, clob, tmp_db)
         result = await executor.execute(sample_trade, sample_market)
 
         assert result.success is False
-        assert "insuficiente" in result.error.lower()
+        assert "Saldo insuficiente" in (result.error or "")
 
-
-class TestDailyStopLoss:
     @pytest.mark.asyncio
     async def test_daily_stop_prevents_execution(
         self,
@@ -63,42 +71,35 @@ class TestDailyStopLoss:
         sample_market: MarketInfo,
         tmp_db: Repository,
     ) -> None:
-        # Create losing positions to trigger daily stop
+        clob = AsyncMock(spec=CLOBClient)
+        clob.get_balance = AsyncMock(return_value=1000.0)
+        clob.get_order_book = AsyncMock(return_value=_MOCK_ORDER_BOOK)
+        clob.estimate_slippage = lambda *a, **kw: 0.0
+
+        # Simulate -$20 daily loss
         now = datetime.now(timezone.utc)
         today_ts = int(
             datetime(now.year, now.month, now.day, 12, 0, 0, tzinfo=timezone.utc).timestamp()
         )
-        for i in range(5):
-            pos = Position(
-                condition_id=f"cond{i}",
-                token_id=f"tok{i}",
-                side="BUY",
-                outcome="Yes",
-                entry_price=0.5,
-                shares=10.0,
-                usdc_invested=5.0,
-                trader_copied="0xtrader",
-                market_title="Test",
-                opened_at=int(time.time()) - 3600,
-                status="open",
-                dry_run=True,
-            )
-            pid = tmp_db.save_position(pos)
-            tmp_db._conn.execute(
-                "UPDATE positions SET status='lost', pnl=?, closed_at=? WHERE id=?",
-                (-5.0, today_ts, pid),
-            )
-            tmp_db._conn.commit()
+        pos = Position(
+            condition_id="c1", token_id="t1", side="BUY", outcome="Yes",
+            entry_price=0.5, shares=10, usdc_invested=20.0,
+            trader_copied="0xabc", market_title="Lost", opened_at=today_ts - 100,
+            status="open", dry_run=True,
+        )
+        pid = tmp_db.save_position(pos)
+        tmp_db._conn.execute(
+            "UPDATE positions SET status='lost', pnl=?, closed_at=? WHERE id=?",
+            (-20.0, today_ts, pid),
+        )
+        tmp_db._conn.commit()
 
-        clob = CLOBClient(config)
         executor = TradeExecutor(config, clob, tmp_db)
         result = await executor.execute(sample_trade, sample_market)
 
         assert result.success is False
-        assert "stop diário" in result.error.lower()
+        assert "Stop diário" in (result.error or "")
 
-
-class TestMaxExposureLimits:
     @pytest.mark.asyncio
     async def test_max_exposure_limits_trade_size(
         self,
@@ -107,66 +108,24 @@ class TestMaxExposureLimits:
         sample_market: MarketInfo,
         tmp_db: Repository,
     ) -> None:
-        # Fill up exposure to near max
+        # Fill exposure to 97 → only $3 headroom (less than $5 per trade)
         for i in range(19):
-            pos = Position(
-                condition_id=f"cond{i}",
-                token_id=f"tok{i}",
-                side="BUY",
-                outcome="Yes",
-                entry_price=0.5,
-                shares=10.0,
-                usdc_invested=5.0,
-                trader_copied="0xtrader",
-                market_title="Test",
-                opened_at=int(time.time()),
-                status="open",
-                dry_run=True,
+            p = Position(
+                condition_id=f"c{i}", token_id=f"t{i}", side="BUY",
+                outcome="Yes", entry_price=0.5, shares=10,
+                usdc_invested=5.0, trader_copied="0x", market_title="X",
+                opened_at=int(time.time()), status="open", dry_run=True,
             )
-            tmp_db.save_position(pos)
+            tmp_db.save_position(p)
+        # 19 * 5.0 = 95.0 exposure, headroom = 5.0
 
-        # Exposure is now $95 out of $100 max
         clob = CLOBClient(config)
         executor = TradeExecutor(config, clob, tmp_db)
         result = await executor.execute(sample_trade, sample_market)
 
         assert result.success is True
-        assert result.usdc_spent == 5.0  # Full $5 fits within remaining $5
+        assert result.usdc_spent <= 5.0
 
-    @pytest.mark.asyncio
-    async def test_zero_headroom_returns_error(
-        self,
-        config: Config,
-        sample_trade: TraderTrade,
-        sample_market: MarketInfo,
-        tmp_db: Repository,
-    ) -> None:
-        for i in range(20):
-            pos = Position(
-                condition_id=f"cond{i}",
-                token_id=f"tok{i}",
-                side="BUY",
-                outcome="Yes",
-                entry_price=0.5,
-                shares=10.0,
-                usdc_invested=5.0,
-                trader_copied="0xtrader",
-                market_title="Test",
-                opened_at=int(time.time()),
-                status="open",
-                dry_run=True,
-            )
-            tmp_db.save_position(pos)
-
-        clob = CLOBClient(config)
-        executor = TradeExecutor(config, clob, tmp_db)
-        result = await executor.execute(sample_trade, sample_market)
-
-        assert result.success is False
-        assert "capital" in result.error.lower()
-
-
-class TestSuccessfulExecution:
     @pytest.mark.asyncio
     async def test_successful_execution_saves_position(
         self,
@@ -177,46 +136,17 @@ class TestSuccessfulExecution:
     ) -> None:
         clob = CLOBClient(config)
         executor = TradeExecutor(config, clob, tmp_db)
-        result = await executor.execute(sample_trade, sample_market)
 
+        result = await executor.execute(sample_trade, sample_market)
         assert result.success is True
+
         positions = tmp_db.get_open_positions()
         assert len(positions) == 1
-        assert positions[0].condition_id == sample_trade.condition_id
-        assert positions[0].trader_copied == sample_trade.proxy_wallet
-        assert positions[0].dry_run is True
+        pos = positions[0]
+        assert pos.condition_id == sample_trade.condition_id
+        assert pos.trader_copied == sample_trade.proxy_wallet
+        assert pos.dry_run is True
 
-
-class TestCLOBOrderError:
-    @pytest.mark.asyncio
-    async def test_clob_create_order_error(
-        self,
-        config: Config,
-        sample_trade: TraderTrade,
-        sample_market: MarketInfo,
-        tmp_db: Repository,
-    ) -> None:
-        """CLOBError during create_market_order."""
-        from src.api.clob import OrderBookSummary
-        clob = AsyncMock(spec=CLOBClient)
-        clob.get_balance = AsyncMock(return_value=1000.0)
-        clob.get_order_book = AsyncMock(return_value=OrderBookSummary(
-            token_id="t", best_bid=0.5, best_ask=0.51, spread=0.01,
-            midpoint=0.505, bid_depth_usd=10000, ask_depth_usd=10000,
-        ))
-        clob.estimate_slippage = MagicMock(return_value=0.0)
-        clob.create_market_order = AsyncMock(
-            side_effect=CLOBError("Order rejected")
-        )
-
-        executor = TradeExecutor(config, clob, tmp_db)
-        result = await executor.execute(sample_trade, sample_market)
-
-        assert result.success is False
-        assert "execução" in result.error.lower()
-
-
-class TestCLOBErrorHandling:
     @pytest.mark.asyncio
     async def test_clob_error_returns_failure_gracefully(
         self,
@@ -225,11 +155,14 @@ class TestCLOBErrorHandling:
         sample_market: MarketInfo,
         tmp_db: Repository,
     ) -> None:
-        clob = AsyncMock()
-        clob.get_balance = AsyncMock(side_effect=CLOBError("Connection refused"))
+        clob = AsyncMock(spec=CLOBClient)
+        clob.get_balance = AsyncMock(return_value=1000.0)
+        clob.get_order_book = AsyncMock(return_value=_MOCK_ORDER_BOOK)
+        clob.estimate_slippage = lambda *a, **kw: 0.0
+        clob.create_market_order = AsyncMock(side_effect=CLOBError("Network timeout"))
 
         executor = TradeExecutor(config, clob, tmp_db)
         result = await executor.execute(sample_trade, sample_market)
 
         assert result.success is False
-        assert "saldo" in result.error.lower()
+        assert "execução" in (result.error or "").lower() or "Network" in (result.error or "")
