@@ -78,7 +78,7 @@ class TestConfigLoadsValidEnv:
         monkeypatch.delenv("POLL_INTERVAL_SECONDS", raising=False)
         cfg = Config.load()
         assert cfg.capital_per_trade_usd == 5.0
-        assert cfg.poll_interval_seconds == 30
+        assert cfg.poll_interval_seconds == 5
 
     def test_config_raises_on_empty_trader_wallets(
         self, env_vars: dict[str, str], monkeypatch: pytest.MonkeyPatch

@@ -39,6 +39,25 @@ class TraderMonitor:
         # Key: (wallet, condition_id) -> timestamp of first copy
         self._copied_markets: dict[tuple[str, str], int] = {}
         self._copy_cooldown_seconds = 3600  # 1 hour cooldown per market per trader
+        self._dynamic_traders: set[str] = set()
+
+    def add_trader(self, wallet: str) -> None:
+        """Add a trader to monitor dynamically."""
+        wallet_lower = wallet.lower()
+        if wallet_lower not in self._dynamic_traders:
+            self._dynamic_traders.add(wallet_lower)
+            logger.info("Added dynamic trader: %s", wallet_lower[:10])
+
+    def remove_trader(self, wallet: str) -> None:
+        """Remove a dynamically added trader."""
+        wallet_lower = wallet.lower()
+        self._dynamic_traders.discard(wallet_lower)
+        logger.info("Removed dynamic trader: %s", wallet_lower[:10])
+
+    @property
+    def all_wallets(self) -> list[str]:
+        """Return all monitored wallets (config + dynamic)."""
+        return list(set(self._config.trader_wallets) | self._dynamic_traders)
 
     def load_seen_hashes(self) -> None:
         """Hydrate the in-memory dedup set from SQLite."""
@@ -49,14 +68,14 @@ class TraderMonitor:
         """Run the monitoring loop forever."""
         self.load_seen_hashes()
         while True:
-            for wallet in self._config.trader_wallets:
+            for wallet in self.all_wallets:
                 await self._check_trader(wallet)
                 await asyncio.sleep(1)  # 1s gap between traders
             await asyncio.sleep(self._config.poll_interval_seconds)  # pragma: no cover
 
     async def run_once(self) -> None:
         """Run a single polling cycle (useful for testing)."""
-        for wallet in self._config.trader_wallets:
+        for wallet in self.all_wallets:
             await self._check_trader(wallet)
 
     async def _check_trader(self, wallet: str) -> None:

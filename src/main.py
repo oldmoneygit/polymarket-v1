@@ -16,7 +16,7 @@ from pathlib import Path
 from src.api.clob import CLOBClient
 from src.api.polymarket import PolymarketClient
 from src.config import Config
-from src.db.models import MarketInfo, TraderTrade
+from src.db.models import TraderTrade
 from src.db.repository import Repository
 from src.executor.trade import TradeExecutor
 from src.monitor.position import PositionMonitor
@@ -70,8 +70,12 @@ class Bot:
         self._confluence = ConfluenceDetector()
         self._momentum = MomentumDetector()
         self._scanner = HighProbScanner()
-        self._executor = TradeExecutor(config, self._clob, self._repo)
-        self._notifier = TelegramNotifier(config, self._repo)
+        self._executor = TradeExecutor(config, self._clob, self._repo, self._confluence)
+        self._notifier = TelegramNotifier(
+            config, self._repo,
+            on_add_trader=self._add_dynamic_trader,
+            on_remove_trader=self._remove_dynamic_trader,
+        )
         self._trader_monitor = TraderMonitor(
             config=config,
             polymarket_client=self._polymarket,
@@ -130,8 +134,12 @@ class Bot:
 
         # Run filter
         current_exposure = self._repo.get_total_open_exposure()
+        has_open_position = self._repo.find_open_position(
+            trade.condition_id, trade.outcome
+        ) is not None
         result = self._filter.evaluate(
-            trade, market, self._config, current_exposure
+            trade, market, self._config, current_exposure,
+            has_open_position=has_open_position,
         )
 
         if not result.passed:
@@ -151,6 +159,17 @@ class Bot:
             elif exec_result.error:
                 await self._notifier.send_trade_detected(trade, exec_result.error)
 
+    async def _add_dynamic_trader(self, wallet: str) -> None:
+        """Add a trader to the monitor dynamically (via /copy command)."""
+        if wallet not in self._config.trader_wallets:
+            self._trader_monitor.add_trader(wallet)
+            logger.info("Dynamic trader added: %s", wallet[:10])
+
+    async def _remove_dynamic_trader(self, wallet: str) -> None:
+        """Remove a dynamic trader (via /remove command)."""
+        self._trader_monitor.remove_trader(wallet)
+        logger.info("Dynamic trader removed: %s", wallet[:10])
+
     async def _handle_position_resolved(
         self, position: object, status: str, pnl: float
     ) -> None:
@@ -164,8 +183,22 @@ class Bot:
         logger.info("Starting Polymarket Copy Trading Bot...")
         logger.info("Monitoring %d traders", len(self._config.trader_wallets))
         logger.info("Dry run: %s", self._config.dry_run)
+        logger.info("Sizing mode: %s", self._config.copy_size_mode)
+        logger.info("Copy SELL: %s", self._config.copy_sell)
+        logger.info("Confluence: %s", self._config.confluence_enabled)
+
+        # Load dynamic traders from DB
+        dynamic = self._repo.get_state("dynamic_traders", "")
+        for w in dynamic.split(","):
+            w = w.strip()
+            if w and w not in self._config.trader_wallets:
+                self._trader_monitor.add_trader(w)
+                logger.info("Loaded dynamic trader: %s", w[:10])
 
         try:
+            # Start Telegram command handler
+            await self._notifier.start_command_handler()
+
             await asyncio.gather(
                 self._trader_monitor.start(),
                 self._position_monitor.start(),
@@ -173,6 +206,7 @@ class Bot:
         except asyncio.CancelledError:
             logger.info("Bot shutting down...")
         finally:
+            await self._notifier.stop_command_handler()
             await self._polymarket.close()
             self._repo.close()
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
 
 from src.config import Config
 from src.db.models import FilterResult, MarketInfo, TraderTrade
@@ -19,13 +18,18 @@ class TradeFilter:
         config: Config,
         current_exposure: float = 0.0,
         now_ts: int | None = None,
+        has_open_position: bool = False,
     ) -> FilterResult:
         """Run all quality checks in order. Returns on first failure."""
         now = now_ts if now_ts is not None else int(time.time())
 
-        # 1. Sports market
-        if market.category != "sports":
-            return FilterResult(passed=False, reason="Mercado não é esportivo")
+        # 1. Market category filter (replaces sports-only)
+        if "all" not in config.market_categories:
+            if market.category not in config.market_categories:
+                return FilterResult(
+                    passed=False,
+                    reason=f"Categoria '{market.category}' não está na lista permitida: {config.market_categories}",
+                )
 
         # 2. Market still open
         if market.is_resolved:
@@ -45,7 +49,22 @@ class TradeFilter:
                 ),
             )
 
-        # 4. Price / probability in range
+        # 4. SELL handling
+        if trade.side == "SELL":
+            if not config.copy_sell:
+                return FilterResult(
+                    passed=False,
+                    reason="Copy de SELL desabilitado",
+                )
+            if not has_open_position:
+                return FilterResult(
+                    passed=False,
+                    reason="SELL ignorado: sem posição aberta para fechar",
+                )
+            # SELL trades skip price range and exposure checks
+            return FilterResult(passed=True, reason="OK — SELL (fechar posição)")
+
+        # 5. Price / probability in range (BUY only)
         price = trade.price
         if price < config.min_probability or price > config.max_probability:
             return FilterResult(
@@ -56,7 +75,7 @@ class TradeFilter:
                 ),
             )
 
-        # 5. Trade recency
+        # 6. Trade recency
         age_minutes = (now - trade.timestamp) / 60
         if age_minutes > config.max_trade_age_minutes:
             return FilterResult(
@@ -67,14 +86,7 @@ class TradeFilter:
                 ),
             )
 
-        # 6. Only BUY (v1)
-        if trade.side != "BUY":
-            return FilterResult(
-                passed=False,
-                reason="Apenas trades de compra são copiados",
-            )
-
-        # 7. Exposure headroom
+        # 7. Exposure headroom (BUY only)
         if current_exposure + config.capital_per_trade_usd > config.max_total_exposure_usd:
             return FilterResult(
                 passed=False, reason="Exposição máxima atingida"

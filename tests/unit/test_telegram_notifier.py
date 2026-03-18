@@ -24,7 +24,7 @@ class TestFormatMessages:
             dry_run=True,
         )
         msg = TelegramNotifier.format_trade_executed(sample_trade, result)
-        assert "Trade executado" in msg
+        assert "executada" in msg
         assert "HorizonSplendidView" in msg
         assert "PSG" in msg
         assert "$0.52" in msg
@@ -107,6 +107,6 @@ class TestFormatMessages:
         msg = TelegramNotifier.format_trade_detected(
             sample_trade, "Volume $3,200 abaixo do mínimo $5,000"
         )
-        assert "NÃO copiado" in msg
+        assert "NAO copiado" in msg
         assert "Volume" in msg
         assert "HorizonSplendidView" in msg

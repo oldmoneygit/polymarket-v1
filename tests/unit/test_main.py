@@ -220,8 +220,13 @@ class TestBotRun:
             bot._trader_monitor.start = AsyncMock(
                 side_effect=asyncio.CancelledError
             )
+            bot._trader_monitor.add_trader = MagicMock()
             bot._position_monitor = AsyncMock()
             bot._position_monitor.start = AsyncMock(return_value=None)
+            bot._notifier = AsyncMock()
+            bot._notifier.start_command_handler = AsyncMock()
+            bot._notifier.stop_command_handler = AsyncMock()
+            mock_repo.get_state = MagicMock(return_value="")
             await bot.run()
             mock_poly.close.assert_called_once()
             mock_repo.close.assert_called_once()

@@ -91,9 +91,24 @@ class Config:
     take_profit_pct: float = 0.20
     slippage_tolerance: float = 0.02
 
+    # Copy sizing: "fixed" | "proportional" | "portfolio" | "kelly"
+    copy_size_mode: str = "fixed"
+    copy_size_multiplier: float = 0.01  # For proportional: 1% of trader's size
+    max_copy_trade_usd: float = 25.0  # Max per individual copied trade
+    kelly_fraction: float = 0.25  # Quarter-Kelly (conservative)
+
+    # Market filter
+    market_categories: list[str] = field(default_factory=lambda: ["all"])
+    copy_sell: bool = True  # Also copy SELL trades
+
+    # Confluence
+    confluence_enabled: bool = True
+    confluence_boost_moderate: float = 1.5  # Size multiplier for MODERATE confluence
+    confluence_boost_strong: float = 2.0  # Size multiplier for STRONG confluence
+
     # Operation
     dry_run: bool = True
-    poll_interval_seconds: int = 30
+    poll_interval_seconds: int = 5
     position_check_interval_seconds: int = 60
     log_level: str = "INFO"
 
@@ -172,7 +187,28 @@ class Config:
                 f"(must be 0 <= min < max <= 1)"
             )
 
-        poll_interval_seconds = _env_int("POLL_INTERVAL_SECONDS", 30)
+        # Copy sizing
+        copy_size_mode = _env("COPY_SIZE_MODE", "fixed").lower()
+        if copy_size_mode not in ("fixed", "proportional", "portfolio", "kelly"):
+            raise ConfigError(
+                f"COPY_SIZE_MODE must be fixed|proportional|portfolio, got: {copy_size_mode!r}"
+            )
+        copy_size_multiplier = _env_float("COPY_SIZE_MULTIPLIER", 0.01)
+        max_copy_trade_usd = _env_float("MAX_COPY_TRADE_USD", 25.0)
+        kelly_fraction = _env_float("KELLY_FRACTION", 0.25)
+
+        # Market categories
+        raw_categories = _env("MARKET_CATEGORIES", "all")
+        market_categories = [c.strip().lower() for c in raw_categories.split(",") if c.strip()]
+
+        copy_sell = _env_bool("COPY_SELL", default=True)
+
+        # Confluence
+        confluence_enabled = _env_bool("CONFLUENCE_ENABLED", default=True)
+        confluence_boost_moderate = _env_float("CONFLUENCE_BOOST_MODERATE", 1.5)
+        confluence_boost_strong = _env_float("CONFLUENCE_BOOST_STRONG", 2.0)
+
+        poll_interval_seconds = _env_int("POLL_INTERVAL_SECONDS", 5)
         position_check_interval_seconds = _env_int(
             "POSITION_CHECK_INTERVAL_SECONDS", 60
         )
@@ -196,6 +232,15 @@ class Config:
             max_trade_age_minutes=max_trade_age_minutes,
             take_profit_pct=take_profit_pct,
             slippage_tolerance=slippage_tolerance,
+            copy_size_mode=copy_size_mode,
+            copy_size_multiplier=copy_size_multiplier,
+            max_copy_trade_usd=max_copy_trade_usd,
+            kelly_fraction=kelly_fraction,
+            market_categories=market_categories,
+            copy_sell=copy_sell,
+            confluence_enabled=confluence_enabled,
+            confluence_boost_moderate=confluence_boost_moderate,
+            confluence_boost_strong=confluence_boost_strong,
             dry_run=dry_run,
             poll_interval_seconds=poll_interval_seconds,
             position_check_interval_seconds=position_check_interval_seconds,

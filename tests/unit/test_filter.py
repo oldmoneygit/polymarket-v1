@@ -1,4 +1,4 @@
-"""Unit tests for src/strategy/filter.py (SPEC-05)."""
+"""Unit tests for src/strategy/filter.py — updated for Tier 1."""
 
 from __future__ import annotations
 
@@ -29,16 +29,17 @@ class TestTradeFilter:
         assert result.passed is True
         assert result.reason == "OK"
 
-    def test_fails_non_sports_market(
+    def test_passes_non_sports_when_categories_all(
         self,
         trade_filter: TradeFilter,
         sample_trade: TraderTrade,
         sample_market: MarketInfo,
         config: Config,
     ) -> None:
+        """With MARKET_CATEGORIES=all, non-sports markets should pass."""
         market = MarketInfo(
             condition_id=sample_market.condition_id,
-            question=sample_market.question,
+            question="Will BTC hit 100k?",
             category="crypto",
             volume=sample_market.volume,
             liquidity=sample_market.liquidity,
@@ -46,11 +47,37 @@ class TestTradeFilter:
             is_resolved=False,
             yes_price=sample_market.yes_price,
             no_price=sample_market.no_price,
-            slug=sample_market.slug,
+            slug="btc-100k",
         )
         result = trade_filter.evaluate(sample_trade, market, config)
+        assert result.passed is True
+
+    def test_fails_category_when_filtered(
+        self,
+        trade_filter: TradeFilter,
+        sample_trade: TraderTrade,
+        sample_market: MarketInfo,
+        monkeypatch: pytest.MonkeyPatch,
+        env_vars: dict[str, str],
+    ) -> None:
+        """When MARKET_CATEGORIES=sports, non-sports markets should fail."""
+        monkeypatch.setenv("MARKET_CATEGORIES", "sports")
+        cfg = Config.load()
+        market = MarketInfo(
+            condition_id=sample_market.condition_id,
+            question="Will BTC hit 100k?",
+            category="crypto",
+            volume=sample_market.volume,
+            liquidity=sample_market.liquidity,
+            end_date=sample_market.end_date,
+            is_resolved=False,
+            yes_price=sample_market.yes_price,
+            no_price=sample_market.no_price,
+            slug="btc-100k",
+        )
+        result = trade_filter.evaluate(sample_trade, market, cfg)
         assert result.passed is False
-        assert "esportivo" in result.reason
+        assert "Categoria" in result.reason
 
     def test_fails_resolved_market(
         self,
@@ -109,7 +136,7 @@ class TestTradeFilter:
             condition_id=sample_market.condition_id,
             question=sample_market.question,
             category="sports",
-            volume=100.0,  # Below 5000 min
+            volume=100.0,
             liquidity=sample_market.liquidity,
             end_date=sample_market.end_date,
             is_resolved=False,
@@ -133,7 +160,7 @@ class TestTradeFilter:
             timestamp=sample_trade.timestamp,
             condition_id=sample_trade.condition_id,
             transaction_hash=sample_trade.transaction_hash,
-            price=0.05,  # Below 0.30 min
+            price=0.05,
             size=sample_trade.size,
             usdc_size=sample_trade.usdc_size,
             side="BUY",
@@ -158,7 +185,7 @@ class TestTradeFilter:
             timestamp=sample_trade.timestamp,
             condition_id=sample_trade.condition_id,
             transaction_hash=sample_trade.transaction_hash,
-            price=0.95,  # Above 0.75 max
+            price=0.95,
             size=sample_trade.size,
             usdc_size=sample_trade.usdc_size,
             side="BUY",
@@ -180,7 +207,7 @@ class TestTradeFilter:
     ) -> None:
         old_trade = TraderTrade(
             proxy_wallet=sample_trade.proxy_wallet,
-            timestamp=int(time.time()) - 7200,  # 2 hours ago
+            timestamp=int(time.time()) - 7200,
             condition_id=sample_trade.condition_id,
             transaction_hash=sample_trade.transaction_hash,
             price=0.52,
@@ -196,7 +223,9 @@ class TestTradeFilter:
         assert result.passed is False
         assert "min" in result.reason
 
-    def test_fails_sell_trade(
+    # -- SELL tests --
+
+    def test_sell_passes_when_has_open_position(
         self,
         trade_filter: TradeFilter,
         sample_trade: TraderTrade,
@@ -207,7 +236,7 @@ class TestTradeFilter:
             proxy_wallet=sample_trade.proxy_wallet,
             timestamp=sample_trade.timestamp,
             condition_id=sample_trade.condition_id,
-            transaction_hash=sample_trade.transaction_hash,
+            transaction_hash="0xtxsell001",
             price=0.52,
             size=sample_trade.size,
             usdc_size=sample_trade.usdc_size,
@@ -217,9 +246,68 @@ class TestTradeFilter:
             slug=sample_trade.slug,
             event_slug=sample_trade.event_slug,
         )
-        result = trade_filter.evaluate(sell_trade, sample_market, config)
+        result = trade_filter.evaluate(
+            sell_trade, sample_market, config, has_open_position=True
+        )
+        assert result.passed is True
+        assert "SELL" in result.reason
+
+    def test_sell_fails_when_no_open_position(
+        self,
+        trade_filter: TradeFilter,
+        sample_trade: TraderTrade,
+        sample_market: MarketInfo,
+        config: Config,
+    ) -> None:
+        sell_trade = TraderTrade(
+            proxy_wallet=sample_trade.proxy_wallet,
+            timestamp=sample_trade.timestamp,
+            condition_id=sample_trade.condition_id,
+            transaction_hash="0xtxsell002",
+            price=0.52,
+            size=sample_trade.size,
+            usdc_size=sample_trade.usdc_size,
+            side="SELL",
+            outcome="Yes",
+            title=sample_trade.title,
+            slug=sample_trade.slug,
+            event_slug=sample_trade.event_slug,
+        )
+        result = trade_filter.evaluate(
+            sell_trade, sample_market, config, has_open_position=False
+        )
         assert result.passed is False
-        assert "compra" in result.reason
+        assert "sem posição" in result.reason
+
+    def test_sell_fails_when_copy_sell_disabled(
+        self,
+        trade_filter: TradeFilter,
+        sample_trade: TraderTrade,
+        sample_market: MarketInfo,
+        monkeypatch: pytest.MonkeyPatch,
+        env_vars: dict[str, str],
+    ) -> None:
+        monkeypatch.setenv("COPY_SELL", "false")
+        cfg = Config.load()
+        sell_trade = TraderTrade(
+            proxy_wallet=sample_trade.proxy_wallet,
+            timestamp=sample_trade.timestamp,
+            condition_id=sample_trade.condition_id,
+            transaction_hash="0xtxsell003",
+            price=0.52,
+            size=sample_trade.size,
+            usdc_size=sample_trade.usdc_size,
+            side="SELL",
+            outcome="Yes",
+            title=sample_trade.title,
+            slug=sample_trade.slug,
+            event_slug=sample_trade.event_slug,
+        )
+        result = trade_filter.evaluate(
+            sell_trade, sample_market, cfg, has_open_position=True
+        )
+        assert result.passed is False
+        assert "desabilitado" in result.reason
 
     def test_fails_max_exposure_reached(
         self,
@@ -228,7 +316,6 @@ class TestTradeFilter:
         sample_market: MarketInfo,
         config: Config,
     ) -> None:
-        # current_exposure = 98, trade = 5, max = 100 → over limit
         result = trade_filter.evaluate(
             sample_trade, sample_market, config, current_exposure=98.0
         )
@@ -256,5 +343,5 @@ class TestTradeFilter:
         )
         result = trade_filter.evaluate(sample_trade, market, config)
         assert result.passed is False
-        assert "$" in result.reason  # Contains dollar amounts
+        assert "$" in result.reason
         assert "1000" in result.reason or "5000" in result.reason
