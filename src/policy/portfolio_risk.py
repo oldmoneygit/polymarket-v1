@@ -34,10 +34,10 @@ class PortfolioRiskManager:
     def __init__(
         self,
         max_exposure: float = 200.0,
-        category_cap_pct: float = 0.35,
-        market_cap_pct: float = 0.25,
-        max_positions_per_category: int = 6,
-        cash_reserve_pct: float = 0.20,
+        category_cap_pct: float = 0.50,
+        market_cap_pct: float = 0.30,
+        max_positions_per_category: int = 15,
+        cash_reserve_pct: float = 0.10,
     ) -> None:
         self._max_exposure = max_exposure
         self._category_cap = category_cap_pct

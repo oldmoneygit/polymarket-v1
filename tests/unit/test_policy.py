@@ -106,32 +106,32 @@ class TestPortfolioRiskManager:
         assert result.allowed is True
 
     def test_blocks_cash_reserve(self) -> None:
-        prm = PortfolioRiskManager(max_exposure=100.0, cash_reserve_pct=0.20)
-        # Max usable = $80. Fill to $79.
-        positions = [self._make_position("NBA game", 79.0, f"c{i}") for i in range(1)]
+        prm = PortfolioRiskManager(max_exposure=100.0, cash_reserve_pct=0.10)
+        # Max usable = $90. Fill to $89.
+        positions = [self._make_position("NBA game", 89.0, f"c{i}") for i in range(1)]
         result = prm.check(self._make_market(), 2.0, positions)
         assert result.allowed is False
         assert "reserve" in result.reason.lower()
 
     def test_blocks_category_cap(self) -> None:
-        prm = PortfolioRiskManager(max_exposure=200.0, category_cap_pct=0.35)
-        # Category cap = $70. Fill sports to $69.
-        positions = [self._make_position("NBA vs X", 69.0, f"c{i}") for i in range(1)]
+        prm = PortfolioRiskManager(max_exposure=200.0, category_cap_pct=0.50)
+        # Category cap = $100. Fill sports to $99.
+        positions = [self._make_position("NBA vs X", 99.0, f"c{i}") for i in range(1)]
         result = prm.check(self._make_market("sports"), 2.0, positions)
         assert result.allowed is False
         assert "Category" in result.reason or "cap" in result.reason.lower()
 
     def test_blocks_max_positions_per_category(self) -> None:
-        prm = PortfolioRiskManager(max_exposure=200.0, max_positions_per_category=3)
+        prm = PortfolioRiskManager(max_exposure=200.0, max_positions_per_category=3, category_cap_pct=0.90)
         positions = [self._make_position(f"NBA game {i}", 2.0, f"c{i}") for i in range(3)]
         result = prm.check(self._make_market("sports"), 2.0, positions)
         assert result.allowed is False
         assert "positions" in result.reason.lower()
 
     def test_blocks_single_market_concentration(self) -> None:
-        prm = PortfolioRiskManager(max_exposure=200.0, market_cap_pct=0.25)
-        # Market cap = $50. Already have $49 in same market.
-        positions = [self._make_position("NBA game", 49.0, "same_market")]
+        prm = PortfolioRiskManager(max_exposure=200.0, market_cap_pct=0.30)
+        # Market cap = $60. Already have $59 in same market.
+        positions = [self._make_position("NBA game", 59.0, "same_market")]
         market = self._make_market(condition_id="same_market")
         result = prm.check(market, 2.0, positions)
         assert result.allowed is False
