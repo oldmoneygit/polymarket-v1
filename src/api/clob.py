@@ -251,12 +251,19 @@ class CLOBClient:
             # We'd get a WORSE price than the trader (we're copying with delay)
             if reference_price > 0:
                 if side.upper() == "BUY":
-                    # We buy slightly higher than the trader (1-3% worse)
-                    slippage = reference_price * random.uniform(0.01, 0.03)
+                    # Slippage penalty scales with how cheap the asset is
+                    # Cheap underdogs (< 0.20) have wider spreads = more slippage
+                    if reference_price < 0.15:
+                        slip_pct = random.uniform(0.03, 0.08)  # 3-8% for deep underdogs
+                    elif reference_price < 0.30:
+                        slip_pct = random.uniform(0.02, 0.05)  # 2-5% for underdogs
+                    else:
+                        slip_pct = random.uniform(0.01, 0.03)  # 1-3% normal
+                    slippage = reference_price * slip_pct
                     exec_price = min(reference_price + slippage, 0.99)
                 else:
-                    # We sell slightly lower than the trader
-                    slippage = reference_price * random.uniform(0.01, 0.03)
+                    slip_pct = random.uniform(0.01, 0.03)
+                    slippage = reference_price * slip_pct
                     exec_price = max(reference_price - slippage, 0.01)
             else:
                 # No reference price, try orderbook

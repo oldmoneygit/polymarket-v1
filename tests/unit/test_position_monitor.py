@@ -151,7 +151,14 @@ class TestPositionMonitor:
         api.get_market_info.return_value = _make_market(
             is_resolved=False, yes_price=0.70
         )
+        from src.api.clob import OrderBookSummary
+        mock_book = OrderBookSummary(
+            token_id="tok1", best_bid=0.69, best_ask=0.71,
+            spread=0.02, midpoint=0.70,
+            bid_depth_usd=5000.0, ask_depth_usd=5000.0,
+        )
         clob = AsyncMock()
+        clob.get_order_book = AsyncMock(return_value=mock_book)
         tp_callback = AsyncMock()
 
         monitor = PositionMonitor(
