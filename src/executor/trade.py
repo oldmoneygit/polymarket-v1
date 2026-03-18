@@ -199,6 +199,7 @@ class TradeExecutor:
                 token_id=token_id,
                 side="SELL",
                 amount_usdc=existing.shares,
+                reference_price=trade.price,
             )
         except CLOBError as exc:
             return ExecutionResult(
@@ -319,6 +320,7 @@ class TradeExecutor:
                 token_id=token_id,
                 side="BUY",
                 amount_usdc=amount,
+                reference_price=trade.price,
             )
         except CLOBError as exc:
             return ExecutionResult(

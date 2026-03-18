@@ -237,32 +237,41 @@ class CLOBClient:
     # -- Order Placement --------------------------------------------------
 
     async def create_market_order(
-        self, token_id: str, side: str, amount_usdc: float
+        self, token_id: str, side: str, amount_usdc: float,
+        reference_price: float = 0.0,
     ) -> OrderResult:
-        """Place a FOK market order on the CLOB."""
+        """Place a FOK market order on the CLOB.
+
+        Args:
+            reference_price: In dry-run, the price the copied trader got.
+                Used as base for realistic slippage simulation.
+        """
         if self._config.dry_run:
-            # Realistic dry-run: fetch real orderbook, simulate slippage + fees
-            try:
-                book = await self.get_order_book(token_id)
+            # Realistic dry-run: use trader's price + slippage penalty
+            # We'd get a WORSE price than the trader (we're copying with delay)
+            if reference_price > 0:
                 if side.upper() == "BUY":
-                    exec_price = book.best_ask
-                    # Simulate 0.5-1.5% slippage on top of ask
-                    slippage = exec_price * random.uniform(0.005, 0.015)
-                    exec_price = min(exec_price + slippage, 0.99)
+                    # We buy slightly higher than the trader (1-3% worse)
+                    slippage = reference_price * random.uniform(0.01, 0.03)
+                    exec_price = min(reference_price + slippage, 0.99)
                 else:
-                    exec_price = book.best_bid
-                    slippage = exec_price * random.uniform(0.005, 0.015)
-                    exec_price = max(exec_price - slippage, 0.01)
-            except Exception:
-                exec_price = 0.50  # Fallback
+                    # We sell slightly lower than the trader
+                    slippage = reference_price * random.uniform(0.01, 0.03)
+                    exec_price = max(reference_price - slippage, 0.01)
+            else:
+                # No reference price, try orderbook
+                try:
+                    book = await self.get_order_book(token_id)
+                    exec_price = book.best_ask if side.upper() == "BUY" else book.best_bid
+                except Exception:
+                    exec_price = 0.50
 
             shares = amount_usdc / exec_price if exec_price > 0 else 0
-            # Deduct from simulated balance
             self._simulated_balance -= amount_usdc
 
             logger.info(
-                "[DRY RUN] Market order: %s %s $%.2f @ %.4f (%.2f shares, slippage included, bal=$%.2f)",
-                side, token_id[:12], amount_usdc, exec_price, shares, self._simulated_balance,
+                "[DRY RUN] Market order: %s $%.2f @ %.4f (ref=%.4f, %.2f shares, bal=$%.2f)",
+                side, amount_usdc, exec_price, reference_price, shares, self._simulated_balance,
             )
             return OrderResult(
                 order_id=f"dry-{int(datetime.now(timezone.utc).timestamp())}",
