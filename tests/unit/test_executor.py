@@ -320,3 +320,88 @@ class TestConfluenceIntegration:
         assert result.success is True
         # With STRONG confluence (2.0x), $5 base → $10
         assert result.usdc_spent == pytest.approx(10.0, abs=0.5)
+
+
+class TestSpeedAllocation:
+    @pytest.mark.asyncio
+    async def test_fast_market_gets_full_size(
+        self,
+        config: Config,
+        sample_trade: TraderTrade,
+        tmp_db: Repository,
+    ) -> None:
+        """Market resolving in 2 hours = full size (no penalty)."""
+        from datetime import timedelta
+        fast_market = MarketInfo(
+            condition_id=sample_trade.condition_id,
+            question="Fast game",
+            category="sports",
+            volume=50000.0,
+            liquidity=10000.0,
+            end_date=datetime.now(timezone.utc) + timedelta(hours=2),
+            is_resolved=False,
+            yes_price=0.52,
+            no_price=0.48,
+            slug="nba-fast",
+        )
+        clob = CLOBClient(config)
+        executor = TradeExecutor(config, clob, tmp_db)
+        result = await executor.execute(sample_trade, fast_market)
+        assert result.success is True
+        # Config default is $5/trade, fast market = full size
+        assert result.usdc_spent == pytest.approx(config.capital_per_trade_usd, abs=0.1)
+
+    @pytest.mark.asyncio
+    async def test_slow_market_gets_reduced_size(
+        self,
+        config: Config,
+        sample_trade: TraderTrade,
+        tmp_db: Repository,
+    ) -> None:
+        """Market resolving in 24 hours = reduced size."""
+        from datetime import timedelta
+        slow_market = MarketInfo(
+            condition_id="slow_cond",
+            question="Slow game",
+            category="sports",
+            volume=50000.0,
+            liquidity=10000.0,
+            end_date=datetime.now(timezone.utc) + timedelta(hours=24),
+            is_resolved=False,
+            yes_price=0.52,
+            no_price=0.48,
+            slug="nba-slow",
+        )
+        clob = CLOBClient(config)
+        executor = TradeExecutor(config, clob, tmp_db)
+        result = await executor.execute(sample_trade, slow_market)
+        assert result.success is True
+        # 24h is between 6h (fast) and 48h (slow), so should be reduced from $5
+        assert result.usdc_spent < config.capital_per_trade_usd
+
+    @pytest.mark.asyncio
+    async def test_very_slow_market_is_skipped(
+        self,
+        config: Config,
+        sample_trade: TraderTrade,
+        tmp_db: Repository,
+    ) -> None:
+        """Market resolving in 72 hours = skipped (SKIP_VERY_SLOW=true)."""
+        from datetime import timedelta
+        very_slow = MarketInfo(
+            condition_id="veryslow_cond",
+            question="Very slow event",
+            category="politics",
+            volume=50000.0,
+            liquidity=10000.0,
+            end_date=datetime.now(timezone.utc) + timedelta(hours=72),
+            is_resolved=False,
+            yes_price=0.52,
+            no_price=0.48,
+            slug="politics-slow",
+        )
+        clob = CLOBClient(config)
+        executor = TradeExecutor(config, clob, tmp_db)
+        result = await executor.execute(sample_trade, very_slow)
+        assert result.success is False
+        assert "capital" in (result.error or "").lower() or "Sem" in (result.error or "")

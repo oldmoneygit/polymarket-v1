@@ -97,6 +97,16 @@ class Config:
     max_copy_trade_usd: float = 25.0  # Max per individual copied trade
     kelly_fraction: float = 0.25  # Quarter-Kelly (conservative)
 
+    # Capital allocation by resolution speed
+    # Markets resolving in < fast_hours get full size
+    # Markets resolving in fast_hours..slow_hours get reduced size
+    # Markets resolving in > slow_hours get minimal size or are skipped
+    fast_market_hours: float = 6.0  # "Fast" = resolves within 6h
+    slow_market_hours: float = 48.0  # "Slow" = resolves in > 48h
+    fast_market_pct: float = 0.70  # 70% of capital reserved for fast markets
+    slow_market_multiplier: float = 0.25  # Slow markets get 25% of normal size
+    skip_very_slow: bool = True  # Skip markets > slow_market_hours
+
     # Market filter
     market_categories: list[str] = field(default_factory=lambda: ["all"])
     copy_sell: bool = True  # Also copy SELL trades
@@ -197,6 +207,13 @@ class Config:
         max_copy_trade_usd = _env_float("MAX_COPY_TRADE_USD", 25.0)
         kelly_fraction = _env_float("KELLY_FRACTION", 0.25)
 
+        # Capital allocation by speed
+        fast_market_hours = _env_float("FAST_MARKET_HOURS", 6.0)
+        slow_market_hours = _env_float("SLOW_MARKET_HOURS", 48.0)
+        fast_market_pct = _env_float("FAST_MARKET_PCT", 0.70)
+        slow_market_multiplier = _env_float("SLOW_MARKET_MULTIPLIER", 0.25)
+        skip_very_slow = _env_bool("SKIP_VERY_SLOW", default=True)
+
         # Market categories
         raw_categories = _env("MARKET_CATEGORIES", "all")
         market_categories = [c.strip().lower() for c in raw_categories.split(",") if c.strip()]
@@ -236,6 +253,11 @@ class Config:
             copy_size_multiplier=copy_size_multiplier,
             max_copy_trade_usd=max_copy_trade_usd,
             kelly_fraction=kelly_fraction,
+            fast_market_hours=fast_market_hours,
+            slow_market_hours=slow_market_hours,
+            fast_market_pct=fast_market_pct,
+            slow_market_multiplier=slow_market_multiplier,
+            skip_very_slow=skip_very_slow,
             market_categories=market_categories,
             copy_sell=copy_sell,
             confluence_enabled=confluence_enabled,

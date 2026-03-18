@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from src.config import Config
@@ -221,7 +222,26 @@ class TelegramNotifier:
         app.add_handler(CommandHandler("traders", cmd_traders))
         app.add_handler(CommandHandler("copy", cmd_copy))
         app.add_handler(CommandHandler("remove", cmd_remove))
+        async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            if not await _check_auth(update):
+                return
+            await update.message.reply_text("Gerando report... (pode levar 1-2 min)")  # type: ignore[union-attr]
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["python", "daily_report.py", "--days", "1"],
+                    capture_output=True, text=True, timeout=30,
+                    cwd=str(Path(__file__).parent.parent.parent),
+                )
+                output = result.stdout[-3000:] if result.stdout else "Sem output"
+                await update.message.reply_text(  # type: ignore[union-attr]
+                    f"<pre>{output}</pre>", parse_mode="HTML"
+                )
+            except Exception as e:
+                await update.message.reply_text(f"Erro: {e}")  # type: ignore[union-attr]
+
         app.add_handler(CommandHandler("settings", cmd_settings))
+        app.add_handler(CommandHandler("analyze", cmd_analyze))
 
         self._app = app
         await app.initialize()

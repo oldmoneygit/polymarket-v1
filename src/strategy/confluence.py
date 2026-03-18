@@ -21,6 +21,8 @@ TRADER_TIERS: dict[str, str] = {
     "0xc2e7800b5af46e6093872b177b7a5e7f0563be51": "A",  # beachboy4
     "0x37c1874a60d348903594a96703e0507c518fc53a": "A",  # CemeterySun
     "0xd106952ebf30a3125affd8a23b6c1f30c35fc79c": "A",  # Herdonia
+    "0x9eb9133542965213982f3db49097f6cc4184cb5d": "S",  # Stealcopper2gamble (Valorant, 12.47% ratio)
+    "0x6ffb4354cbe6e0f9989e3b55564ec5fb8646a834": "A",  # AgricultureSecretary (Politics)
 }
 
 TIER_WEIGHT = {"S": 3, "A": 1}

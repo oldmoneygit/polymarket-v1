@@ -55,6 +55,11 @@ def env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "COPY_SIZE_MODE": "fixed",
         "COPY_SIZE_MULTIPLIER": "0.01",
         "MAX_COPY_TRADE_USD": "25.0",
+        "FAST_MARKET_HOURS": "6.0",
+        "SLOW_MARKET_HOURS": "48.0",
+        "FAST_MARKET_PCT": "0.70",
+        "SLOW_MARKET_MULTIPLIER": "0.25",
+        "SKIP_VERY_SLOW": "true",
         "MARKET_CATEGORIES": "all",
         "COPY_SELL": "true",
         "CONFLUENCE_ENABLED": "true",
@@ -105,13 +110,15 @@ def sample_trade() -> TraderTrade:
 
 @pytest.fixture()
 def sample_market() -> MarketInfo:
+    # End date 3 hours from now = "fast market" for speed allocation
+    from datetime import timedelta
     return MarketInfo(
         condition_id="0xcond123",
         question="Will PSG win on 2026-03-11?",
         category="sports",
         volume=50000.0,
         liquidity=10000.0,
-        end_date=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        end_date=datetime.now(timezone.utc) + timedelta(hours=3),
         is_resolved=False,
         yes_price=0.52,
         no_price=0.48,

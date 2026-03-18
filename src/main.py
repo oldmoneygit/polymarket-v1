@@ -22,10 +22,14 @@ from src.executor.trade import TradeExecutor
 from src.monitor.position import PositionMonitor
 from src.monitor.trader import TraderMonitor
 from src.notifier.telegram import TelegramNotifier
-from src.strategy.confluence import ConfluenceDetector  # [MERGED FROM polymarket-v1]
+from src.policy.drawdown import DrawdownManager
+from src.policy.portfolio_risk import PortfolioRiskManager
+from src.policy.risk_checklist import RiskChecklist
+from src.strategy.confluence import ConfluenceDetector
+from src.strategy.whale_conviction import WhaleConvictionTracker
 from src.strategy.filter import TradeFilter
-from src.strategy.momentum import MomentumDetector  # [MERGED FROM polymarket-v1]
-from src.strategy.scanner import HighProbScanner  # [MERGED FROM polymarket-v1]
+from src.strategy.momentum import MomentumDetector
+from src.strategy.scanner import HighProbScanner
 
 logger = logging.getLogger("polymarket_bot")
 
@@ -68,8 +72,15 @@ class Bot:
         self._filter = TradeFilter()
         # [MERGED FROM polymarket-v1] New strategy components
         self._confluence = ConfluenceDetector()
+        self._whale_conviction = WhaleConvictionTracker()
         self._momentum = MomentumDetector()
         self._scanner = HighProbScanner()
+        # Policy components
+        self._drawdown = DrawdownManager(initial_equity=0.0)
+        self._portfolio_risk = PortfolioRiskManager(
+            max_exposure=config.max_total_exposure_usd,
+        )
+        self._risk_checklist = RiskChecklist(config, self._drawdown, self._portfolio_risk)
         self._executor = TradeExecutor(config, self._clob, self._repo, self._confluence)
         self._notifier = TelegramNotifier(
             config, self._repo,
@@ -97,13 +108,21 @@ class Bot:
             logger.info("Bot is paused, skipping trade %s", trade.transaction_hash)
             return
 
-        # [MERGED FROM polymarket-v1] Record confluence signal (before any filtering)
+        # Record confluence + whale conviction (before any filtering)
         self._confluence.record_trade(
             condition_id=trade.condition_id,
             title=trade.title,
             outcome=trade.outcome,
             trader_wallet=trade.proxy_wallet,
             usdc_size=trade.usdc_size,
+        )
+        self._whale_conviction.record_trade(
+            condition_id=trade.condition_id,
+            title=trade.title,
+            outcome=trade.outcome,
+            wallet=trade.proxy_wallet,
+            usd_size=trade.usdc_size,
+            side=trade.side,
         )
 
         # Fetch market info
@@ -146,6 +165,25 @@ class Bot:
             logger.info("Trade filtered out: %s — %s", trade.title[:40], result.reason)
             return
 
+        # Risk checklist (15-point pre-trade validation)
+        if trade.side == "BUY":
+            try:
+                balance = await self._clob.get_balance()
+            except Exception:
+                balance = 1000.0  # Dry-run fallback
+            daily_pnl = self._repo.get_daily_pnl()
+            open_positions = self._repo.get_open_positions()
+            checklist = self._risk_checklist.run(
+                trade, market,
+                trade_amount=self._config.capital_per_trade_usd,
+                balance=balance,
+                daily_pnl=daily_pnl,
+                open_positions=open_positions,
+            )
+            if not checklist.all_passed:
+                logger.info("Risk checklist FAILED: %s — %s", trade.title[:40], checklist.summary)
+                return
+
         # Execute
         exec_result = await self._executor.execute(trade, market)
 
@@ -176,6 +214,14 @@ class Bot:
         from src.db.models import Position
 
         if isinstance(position, Position):
+            # Update drawdown tracker
+            dd_state = self._drawdown.update_equity(pnl)
+            if dd_state.heat_level.value != "GREEN":
+                logger.warning(
+                    "Drawdown heat: %s %s (DD: %.1f%%, sizing: %.0f%%)",
+                    dd_state.emoji, dd_state.heat_level.value,
+                    dd_state.drawdown_pct * 100, dd_state.kelly_multiplier * 100,
+                )
             await self._notifier.send_position_resolved(position, status, pnl)
 
     async def run(self) -> None:

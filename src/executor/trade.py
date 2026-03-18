@@ -40,10 +40,42 @@ class TradeExecutor:
         self._repo = repository
         self._confluence = confluence
 
+    @staticmethod
+    def _hours_to_resolution(market: MarketInfo) -> float:
+        """Calculate hours until market resolves."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        delta = (market.end_date - now).total_seconds() / 3600
+        return max(0, delta)
+
+    def _speed_multiplier(self, market: MarketInfo) -> float:
+        """Return a sizing multiplier based on how fast the market resolves.
+
+        Fast markets (< fast_hours): 1.0 (full size)
+        Medium markets (fast_hours..slow_hours): linear decay from 1.0 to slow_multiplier
+        Slow markets (> slow_hours): slow_multiplier or 0 if skip_very_slow
+        """
+        config = self._config
+        hours = self._hours_to_resolution(market)
+
+        if hours <= config.fast_market_hours:
+            return 1.0
+
+        if hours >= config.slow_market_hours:
+            if config.skip_very_slow:
+                return 0.0
+            return config.slow_market_multiplier
+
+        # Linear interpolation between fast and slow
+        range_hours = config.slow_market_hours - config.fast_market_hours
+        progress = (hours - config.fast_market_hours) / range_hours
+        return 1.0 - progress * (1.0 - config.slow_market_multiplier)
+
     def _calculate_size(
         self,
         trade: TraderTrade,
         headroom: float,
+        market: MarketInfo | None = None,
         confluence_signal: MarketSignal | None = None,
     ) -> float:
         """Calculate trade size based on configured sizing mode."""
@@ -92,12 +124,34 @@ class TradeExecutor:
                     config.confluence_boost_moderate, base,
                 )
 
+        # Apply speed multiplier (fast markets get more capital)
+        if market is not None:
+            speed_mult = self._speed_multiplier(market)
+            if speed_mult <= 0:
+                hours = self._hours_to_resolution(market)
+                logger.info(
+                    "Skipping slow market (%.0fh to resolve, max %.0fh): %s",
+                    hours, config.slow_market_hours, trade.title[:40],
+                )
+                return 0.0
+            if speed_mult < 1.0:
+                hours = self._hours_to_resolution(market)
+                logger.info(
+                    "Slow market penalty: %.0fx size (%.0fh to resolve): %s",
+                    speed_mult, hours, trade.title[:40],
+                )
+                base *= speed_mult
+
         # Apply caps
         base = min(base, config.max_copy_trade_usd)
         base = min(base, headroom)
         base = min(base, config.capital_per_trade_usd * 5)  # Safety: never more than 5x base
 
-        return max(0, base)
+        # Minimum viable trade
+        if base < 0.10:
+            return 0.0
+
+        return base
 
     async def execute(
         self,
@@ -213,7 +267,7 @@ class TradeExecutor:
             signals = self._confluence._signals
             confluence_signal = signals.get(key)
 
-        amount = self._calculate_size(trade, headroom, confluence_signal)
+        amount = self._calculate_size(trade, headroom, market, confluence_signal)
         if amount <= 0:
             return ExecutionResult(
                 success=False, error="Sem capital disponível"
@@ -272,7 +326,12 @@ class TradeExecutor:
 
         # 8. Save position (or update existing)
         entry_price = order.price if order.price > 0 else trade.price
-        shares = order.filled_size if order.filled_size > 0 else (amount / entry_price if entry_price > 0 else 0)
+        # In dry-run, order.filled_size = amount_usdc (not shares).
+        # Real shares = amount / price. Only trust filled_size from live orders with price > 0.
+        if order.price > 0 and order.filled_size > 0:
+            shares = order.filled_size
+        else:
+            shares = amount / entry_price if entry_price > 0 else 0
         usdc_invested = amount
 
         if existing is not None:

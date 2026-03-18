@@ -117,6 +117,9 @@ class TestHandleNewTrade:
             mock_repo = MockRepo.return_value
             mock_repo.get_state.return_value = "false"
             mock_repo.get_total_open_exposure.return_value = 0.0
+            mock_repo.get_daily_pnl.return_value = 0.0
+            mock_repo.get_open_positions.return_value = []
+            mock_repo.find_open_position.return_value = None
             mock_poly = MockPoly.return_value
             mock_poly.get_market_info = AsyncMock(return_value=sample_market)
             mock_notifier = MockNotifier.return_value
@@ -148,6 +151,9 @@ class TestHandleNewTrade:
             mock_repo = MockRepo.return_value
             mock_repo.get_state.return_value = "false"
             mock_repo.get_total_open_exposure.return_value = 0.0
+            mock_repo.get_daily_pnl.return_value = 0.0
+            mock_repo.get_open_positions.return_value = []
+            mock_repo.find_open_position.return_value = None
             mock_repo.set_state = MagicMock()
             mock_poly = MockPoly.return_value
             mock_poly.get_market_info = AsyncMock(return_value=sample_market)
