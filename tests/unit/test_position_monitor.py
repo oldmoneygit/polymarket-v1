@@ -69,7 +69,9 @@ class TestPositionMonitor:
         callback.assert_called_once()
         args = callback.call_args[0]
         assert args[1] == "won"
-        assert args[2] == pytest.approx(9.62 - 5.0)  # shares - invested
+        gross = 9.62 - 5.0  # shares - invested
+        fee = gross * 0.02  # 2% fee on profit
+        assert args[2] == pytest.approx(gross - fee)  # After fee
 
     @pytest.mark.asyncio
     async def test_resolved_market_yes_loss_calculates_pnl(

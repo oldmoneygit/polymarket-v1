@@ -16,13 +16,14 @@ class TestDryRun:
         client = CLOBClient(config)
         result = await client.create_market_order("token1", "BUY", 5.0)
         assert result.status == "simulated"
-        assert result.order_id == "dry-run-fake-id"
+        assert result.order_id.startswith("dry-")
+        assert result.price > 0  # Now uses real/fallback orderbook price
 
     @pytest.mark.asyncio
     async def test_dry_run_get_balance(self, config: Config) -> None:
         client = CLOBClient(config)
         balance = await client.get_balance()
-        assert balance == 1000.0
+        assert balance == config.max_total_exposure_usd  # Starts with max_exposure
 
     @pytest.mark.asyncio
     async def test_dry_run_get_positions(self, config: Config) -> None:
@@ -46,7 +47,8 @@ class TestCreateOrder:
         client = CLOBClient(config)
         result = await client.create_market_order("token1", "BUY", 5.0)
         assert result.order_id is not None
-        assert result.filled_size == 5.0
+        assert result.filled_size > 0  # Shares based on real/fallback price
+        assert result.price > 0  # Real price from orderbook
 
     @pytest.mark.asyncio
     async def test_insufficient_balance_raises_error(

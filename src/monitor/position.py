@@ -59,13 +59,18 @@ class PositionMonitor:
         if market.is_resolved:
             won = self._determine_outcome(pos, market.resolved_outcome)
             if won:
-                pnl = pos.shares - pos.usdc_invested  # $1/share on win
+                gross = pos.shares - pos.usdc_invested  # $1/share on win
+                fee = max(0, gross) * 0.02  # 2% fee on NET PROFIT only
+                pnl = gross - fee
                 status = "won"
             else:
-                pnl = -pos.usdc_invested
+                pnl = -pos.usdc_invested  # Full loss, no fee on losses
                 status = "lost"
 
             self._repo.update_position_result(pos.id, status, pnl)  # type: ignore[arg-type]
+            # Return to simulated balance
+            if hasattr(self._clob, '_simulated_balance'):
+                self._clob._simulated_balance += pos.usdc_invested + pnl
             logger.info(
                 "Position resolved: %s — %s (PnL: $%.2f)",
                 pos.market_title[:40],
@@ -90,10 +95,17 @@ class PositionMonitor:
                     (current_price - pos.entry_price) / pos.entry_price
                 )
                 if unrealized_pnl_pct >= self._config.take_profit_pct:
-                    pnl = (current_price - pos.entry_price) * pos.shares
+                    # Realistic P&L: deduct 2% fee + 1% estimated slippage on exit
+                    gross_pnl = (current_price - pos.entry_price) * pos.shares
+                    exit_fee = pos.usdc_invested * 0.02  # 2% Polymarket fee
+                    exit_slippage = gross_pnl * 0.01  # ~1% slippage on exit
+                    pnl = gross_pnl - exit_fee - exit_slippage
                     self._repo.update_position_result(pos.id, "sold", pnl)  # type: ignore[arg-type]
+                    # Return capital to simulated balance
+                    if hasattr(self._clob, '_simulated_balance'):
+                        self._clob._simulated_balance += pos.usdc_invested + pnl
                     logger.info(
-                        "Take profit triggered: %s — +%.0f%% (PnL: $%.2f)",
+                        "Take profit triggered: %s — +%.0f%% gross, PnL: $%.2f (after 2%% fee + slippage)",
                         pos.market_title[:40],
                         unrealized_pnl_pct * 100,
                         pnl,

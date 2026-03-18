@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -55,6 +57,9 @@ class CLOBClient:
         self._config = config
         self._client: object | None = None
         self._http_session: aiohttp.ClientSession | None = None
+        # Realistic dry-run balance tracking
+        self._simulated_balance: float = config.max_total_exposure_usd
+        self._simulated_pnl: float = 0.0
         if not config.dry_run:
             self._init_real_client(config)
 
@@ -90,18 +95,11 @@ class CLOBClient:
     # [MERGED FROM polymarket-v1] New method
 
     async def get_order_book(self, token_id: str) -> OrderBookSummary:
-        """Fetch order book and return summary with liquidity info."""
-        if self._config.dry_run:
-            return OrderBookSummary(
-                token_id=token_id,
-                best_bid=0.50,
-                best_ask=0.51,
-                spread=0.01,
-                midpoint=0.505,
-                bid_depth_usd=10000.0,
-                ask_depth_usd=10000.0,
-            )
+        """Fetch order book and return summary with liquidity info.
 
+        In dry-run, fetches REAL orderbook data from the API for realistic simulation.
+        Falls back to synthetic data only if the API call fails.
+        """
         session = await self._get_http_session()
         try:
             async with session.get(
@@ -112,7 +110,15 @@ class CLOBClient:
                         f"Order book HTTP {resp.status}"
                     )
                 data = await resp.json()
-        except aiohttp.ClientError as exc:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            if self._config.dry_run:
+                # Fallback for dry-run if API fails
+                logger.debug("Order book fetch failed in dry-run, using fallback: %s", exc)
+                return OrderBookSummary(
+                    token_id=token_id, best_bid=0.49, best_ask=0.51,
+                    spread=0.02, midpoint=0.50,
+                    bid_depth_usd=500.0, ask_depth_usd=500.0,
+                )
             raise PolymarketError.network(f"Order book fetch failed: {exc}") from exc
 
         bids = data.get("bids", [])
@@ -193,11 +199,16 @@ class CLOBClient:
 
     # -- Balance & Positions ----------------------------------------------
 
+    def update_simulated_balance(self, delta: float) -> None:
+        """Update simulated balance (for dry-run tracking)."""
+        self._simulated_balance += delta
+
     async def get_balance(self) -> float:
         """Return available USDC balance."""
         if self._config.dry_run:
-            logger.info("[DRY RUN] get_balance -> returning simulated $1000.00")
-            return 1000.0
+            bal = max(0, self._simulated_balance)
+            logger.info("[DRY RUN] get_balance -> $%.2f", bal)
+            return bal
 
         if self._client is None:
             raise PolymarketError("CLOB client not initialized", ErrorCode.CONFIG_ERROR)
@@ -230,16 +241,35 @@ class CLOBClient:
     ) -> OrderResult:
         """Place a FOK market order on the CLOB."""
         if self._config.dry_run:
+            # Realistic dry-run: fetch real orderbook, simulate slippage + fees
+            try:
+                book = await self.get_order_book(token_id)
+                if side.upper() == "BUY":
+                    exec_price = book.best_ask
+                    # Simulate 0.5-1.5% slippage on top of ask
+                    slippage = exec_price * random.uniform(0.005, 0.015)
+                    exec_price = min(exec_price + slippage, 0.99)
+                else:
+                    exec_price = book.best_bid
+                    slippage = exec_price * random.uniform(0.005, 0.015)
+                    exec_price = max(exec_price - slippage, 0.01)
+            except Exception:
+                exec_price = 0.50  # Fallback
+
+            shares = amount_usdc / exec_price if exec_price > 0 else 0
+            # Deduct from simulated balance
+            self._simulated_balance -= amount_usdc
+
             logger.info(
-                "[DRY RUN] Would create market order: "
-                f"token={token_id} side={side} amount=${amount_usdc:.2f}"
+                "[DRY RUN] Market order: %s %s $%.2f @ %.4f (%.2f shares, slippage included, bal=$%.2f)",
+                side, token_id[:12], amount_usdc, exec_price, shares, self._simulated_balance,
             )
             return OrderResult(
-                order_id="dry-run-fake-id",
+                order_id=f"dry-{int(datetime.now(timezone.utc).timestamp())}",
                 status="simulated",
-                price=0.0,
-                size=amount_usdc,
-                filled_size=amount_usdc,
+                price=exec_price,
+                size=shares,
+                filled_size=shares,
                 timestamp=datetime.now(timezone.utc),
             )
 
